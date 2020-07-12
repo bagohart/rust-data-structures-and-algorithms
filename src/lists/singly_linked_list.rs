@@ -10,6 +10,7 @@ pub struct SinglyLinkedList<T> {
 }
 
 impl<T> SinglyLinkedList<T> {
+    // mostly from LRWETMLL
     pub fn new() -> Self {
         SinglyLinkedList { head: None }
     }
@@ -43,6 +44,60 @@ impl<T> SinglyLinkedList<T> {
 
     pub fn peek_front_mut(&mut self) -> Option<&mut T> {
         self.head.as_mut().map(|node| &mut node.elem)
+    }
+
+    // the following functions are actually new
+    pub fn peek_back(&self) -> Option<&T> {
+        self.get_last_node().map(|node| &node.elem)
+    }
+
+    pub fn peek_back_mut(&mut self) -> Option<&mut T> {
+        self.get_last_node_mut().map(|node| &mut node.elem)
+    }
+
+    fn get_last_node_mut(&mut self) -> Option<&mut Node<T>> {
+        if self.head.is_none() {
+            return None;
+        }
+
+        let mut node: &mut Node<T> = self.head.as_mut().unwrap();
+        while node.next.is_some() {
+            node = node.next.as_mut().unwrap();
+        }
+        Some(node)
+    }
+
+    fn get_last_node(&self) -> Option<&Node<T>> {
+        return self.head.as_ref().take().map(|head| {
+            // todo: can I do |ref head| or something to dereference the box in the closure argument list?
+            let mut node: &Node<T> = &*head;
+
+            // todo: now can I replace this with while let? maaaaybe?
+            while node.next.is_some() {
+                node = &**node.next.as_ref().unwrap();
+            }
+            node
+        });
+
+        // todo: maybe some map construction?
+        // Though probably that cannot work because then I'd reference a value from the closure?
+        // actually, maybe it could: use as_ref().take() ...
+        if self.head.is_none() {
+            return None;
+        }
+
+        let mut node: &Node<T> = self.head.as_ref().map(|n| n).unwrap();
+        while node.next.is_some() {
+            node = node.next.as_ref().unwrap();
+        }
+        Some(node)
+
+        // Alternatively, this would work, too:
+        // let mut node: Option<&Node<T>> = self.head.as_ref().map(|node| &**node);
+        // while node.is_some() && node.unwrap().next.is_some() {
+        //     node = node.unwrap().next.as_ref().map(|node| &**node);
+        // }
+        // node;
     }
 }
 
@@ -116,6 +171,32 @@ impl<'a, T> Iterator for IterMut<'a, T> {
 #[cfg(test)]
 mod tests {
     use super::SinglyLinkedList;
+
+    #[test]
+    fn get_last_node_mut() {
+        let mut list = SinglyLinkedList::new();
+        let last_node = list.get_last_node();
+        assert!(last_node.is_none());
+        list.push_front(1);
+        list.push_front(2);
+        list.push_front(3);
+        let last_node = list.get_last_node_mut();
+        last_node.map(|n| n.elem = 5);
+        let last_node = list.get_last_node();
+        assert_eq!(last_node.unwrap().elem, 5);
+    }
+
+    #[test]
+    fn get_last_node() {
+        let mut list = SinglyLinkedList::new();
+        let last_node = list.get_last_node();
+        assert!(last_node.is_none());
+        list.push_front(1);
+        list.push_front(2);
+        list.push_front(3);
+        let last_node = list.get_last_node();
+        assert_eq!(last_node.unwrap().elem, 1);
+    }
 
     #[test]
     fn iter_mut() {
