@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 mod stacks;
 mod queues;
+mod lists;
 mod search;
 mod sort;
 
@@ -27,11 +28,12 @@ mod sort;
 //      [x] bubblesort
 //      [x] selectionsort
 //      [x] shellsort
-//      [ ] mergesort
-//      [ ] quicksort
+//      [x] mergesort
+//      [x] quicksort
+//      [x] countingsort
 //      [ ] heapsort
-//      [ ] bucketsort
-//      [ ] index based sort (?)
-//      [ ] ...?
+//      [ ] unsafe merge w/o Copy
+//      [ ] unsafe counting w/o Copy
+//      [x] unsafe quick w/o Copy (2 Varianten)
 //
 // magic: [unsafe] linked lists, doubly linked lists, dynamic arrays
