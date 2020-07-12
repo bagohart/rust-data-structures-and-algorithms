@@ -48,14 +48,16 @@ impl<T> SinglyLinkedList<T> {
 
     // the following functions are actually new
     pub fn peek_back(&self) -> Option<&T> {
-        self.get_last_node().map(|node| &node.elem)
+        self.last_node().map(|node| &node.elem)
     }
 
     pub fn peek_back_mut(&mut self) -> Option<&mut T> {
-        self.get_last_node_mut().map(|node| &mut node.elem)
+        self.last_node_mut().map(|node| &mut node.elem)
     }
 
-    fn get_last_node_mut(&mut self) -> Option<&mut Node<T>> {
+    fn last_node_mut<'a>(&'a mut self) -> Option<&'a mut Node<T>> {
+        // I couldn't get the same construction to work as for last_node because of lifetime issues.
+        // Not sure if this is somehow possible.
         if self.head.is_none() {
             return None;
         }
@@ -67,37 +69,40 @@ impl<T> SinglyLinkedList<T> {
         Some(node)
     }
 
-    fn get_last_node(&self) -> Option<&Node<T>> {
-        return self.head.as_ref().take().map(|head| {
+    fn last_node(&self) -> Option<&Node<T>> {
+        self.head.as_ref().take().map(|head| {
             // todo: can I do |ref head| or something to dereference the box in the closure argument list?
             let mut node: &Node<T> = &*head;
 
-            // todo: now can I replace this with while let? maaaaybe?
-            while node.next.is_some() {
-                node = &**node.next.as_ref().unwrap();
+            while let Some(next_node_box) = node.next.as_ref() {
+                // what magic is this? why is the box casted to a reference implicitly? woah.
+                node = next_node_box;
             }
             node
+
+            // This works too:
+            // while node.next.is_some() {
+            //     node = &**node.next.as_ref().unwrap();
+            // }
+            // node
+        })
+    }
+
+    pub fn push_back(&mut self, elem: T) {
+        let new_node = Box::new(Node {
+            elem: elem,
+            next: None,
         });
-
-        // todo: maybe some map construction?
-        // Though probably that cannot work because then I'd reference a value from the closure?
-        // actually, maybe it could: use as_ref().take() ...
-        if self.head.is_none() {
-            return None;
+        let last_node = self.last_node_mut();
+        match last_node {
+            None => self.head = Some(new_node),
+            Some(last_node) => last_node.next = Some(new_node),
         }
+    }
 
-        let mut node: &Node<T> = self.head.as_ref().map(|n| n).unwrap();
-        while node.next.is_some() {
-            node = node.next.as_ref().unwrap();
-        }
-        Some(node)
-
-        // Alternatively, this would work, too:
-        // let mut node: Option<&Node<T>> = self.head.as_ref().map(|node| &**node);
-        // while node.is_some() && node.unwrap().next.is_some() {
-        //     node = node.unwrap().next.as_ref().map(|node| &**node);
-        // }
-        // node;
+    pub fn pop_back_node(&mut self)->Link<T>{
+    }
+    pub fn pop_back(&mut self) -> Option<T> {
     }
 }
 
@@ -173,28 +178,56 @@ mod tests {
     use super::SinglyLinkedList;
 
     #[test]
-    fn get_last_node_mut() {
+    fn push_back() {
         let mut list = SinglyLinkedList::new();
-        let last_node = list.get_last_node();
+        list.push_front(1);
+        list.push_front(2);
+        list.push_front(3);
+        list.push_back(4);
+        assert_eq!(list.pop_front(), Some(3));
+        assert_eq!(list.pop_front(), Some(2));
+        assert_eq!(list.pop_front(), Some(1));
+        assert_eq!(list.pop_front(), Some(4));
+        assert_eq!(list.pop_front(), None);
+    }
+
+    #[test]
+    fn peek_back() {
+        let mut list = SinglyLinkedList::new();
+        list.push_front(1);
+        list.push_front(2);
+        list.push_front(3);
+        let last_elem = list.peek_back();
+        assert_eq!(last_elem, Some(&1));
+
+        let mut last_elem_mut = list.peek_back_mut();
+        last_elem_mut.as_mut().map(|n| **n = 8);
+        assert_eq!(last_elem_mut, Some(&mut 8));
+    }
+
+    #[test]
+    fn last_node_mut() {
+        let mut list = SinglyLinkedList::new();
+        let last_node = list.last_node();
         assert!(last_node.is_none());
         list.push_front(1);
         list.push_front(2);
         list.push_front(3);
-        let last_node = list.get_last_node_mut();
+        let last_node = list.last_node_mut();
         last_node.map(|n| n.elem = 5);
-        let last_node = list.get_last_node();
+        let last_node = list.last_node();
         assert_eq!(last_node.unwrap().elem, 5);
     }
 
     #[test]
-    fn get_last_node() {
+    fn last_node() {
         let mut list = SinglyLinkedList::new();
-        let last_node = list.get_last_node();
+        let last_node = list.last_node();
         assert!(last_node.is_none());
         list.push_front(1);
         list.push_front(2);
         list.push_front(3);
-        let last_node = list.get_last_node();
+        let last_node = list.last_node();
         assert_eq!(last_node.unwrap().elem, 1);
     }
 
