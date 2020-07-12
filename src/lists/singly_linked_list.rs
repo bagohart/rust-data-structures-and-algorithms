@@ -100,9 +100,23 @@ impl<T> SinglyLinkedList<T> {
         }
     }
 
-    pub fn pop_back_node(&mut self)->Link<T>{
+    fn pop_back_link(&mut self) -> Link<T> {
+        if self.head.is_none() {
+            return None;
+        }
+
+        let mut node_box_ref_mut: &mut Link<T> = &mut self.head;
+        // todo: here is repetition. can this be expressed better?
+        // ^ probably not. tried with loop, ran into temporary variables/ownership problems u_U
+        while node_box_ref_mut.as_mut().unwrap().next.is_some() {
+            node_box_ref_mut = &mut node_box_ref_mut.as_mut().unwrap().next;
+        }
+        node_box_ref_mut.take()
     }
+
     pub fn pop_back(&mut self) -> Option<T> {
+        let last_link: Link<T> = self.pop_back_link();
+        last_link.map(|link| link.elem)
     }
 }
 
@@ -176,6 +190,20 @@ impl<'a, T> Iterator for IterMut<'a, T> {
 #[cfg(test)]
 mod tests {
     use super::SinglyLinkedList;
+
+    #[test]
+    fn pop_back() {
+        let mut list = SinglyLinkedList::new();
+        list.push_front(1);
+        list.push_front(2);
+        list.push_front(3);
+        let last_elem = list.pop_back();
+        assert_eq!(last_elem, Some(1));
+        let last_elem = list.pop_back();
+        assert_eq!(last_elem, Some(2));
+        assert_eq!(list.pop_front(), Some(3));
+        assert_eq!(list.pop_front(), None);
+    }
 
     #[test]
     fn push_back() {
