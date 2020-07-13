@@ -9,6 +9,8 @@ mod sort;
 // [x] stack, vector based
 // [x] queue, vector based
 // [x] priority queue, vector based
+// singly linked list
+// doubly linked list
 // [ ] binary tree
 // [ ] graph(s)
 // [ ] b something tree(s)
