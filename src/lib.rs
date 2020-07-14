@@ -2,6 +2,7 @@
 mod stacks;
 mod queues;
 mod lists;
+mod trees;
 mod search;
 mod sort;
 
@@ -9,9 +10,11 @@ mod sort;
 // [x] stack, vector based
 // [x] queue, vector based
 // [x] priority queue, vector based
-// singly linked list
-// doubly linked list
+// [x] singly linked list
+// [ ] doubly linked list
 // [ ] binary tree
+// [ ] binary search tree
+// [ ] red black tree
 // [ ] graph(s)
 // [ ] b something tree(s)
 // [ ] set
@@ -33,9 +36,9 @@ mod sort;
 //      [x] mergesort
 //      [x] quicksort
 //      [x] countingsort
-//      [ ] heapsort
-//      [ ] unsafe merge w/o Copy
-//      [ ] unsafe counting w/o Copy
+//      [x] unsafe merge w/o Copy
+//      [x] unsafe counting w/o Copy
 //      [x] unsafe quick w/o Copy (2 Varianten)
+//      [ ] heapsort
 //
 // magic: [unsafe] linked lists, doubly linked lists, dynamic arrays

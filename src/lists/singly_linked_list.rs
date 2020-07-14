@@ -1,8 +1,5 @@
 use std::fmt::Display;
 
-// todo:
-// merge (zip) <- via iterator ?
-
 type Link<T> = Option<Box<Node<T>>>;
 
 struct Node<T> {
