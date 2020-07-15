@@ -4,7 +4,9 @@ use std::fmt::Display;
 
 // todo:
 // inorder, preorder, postorder, levelorder
-// iter,iter_mut,into_iter
+// [x] into_iter
+// [x] iter
+// [ ] iter_mut
 
 type Link<T> = Option<Box<Node<T>>>;
 
@@ -60,6 +62,25 @@ impl<T> Node<T> {
         self.right.as_ref().map(|right| right.postorder(func));
         func(&self.elem);
     }
+
+    // todo: can I use the borrow trait or something to make this a bit nicer?
+    fn push_left_branch<'node>(mut node: Option<&'node Node<T>>, stack: &mut Vec<&'node Node<T>>) {
+        while let Some(ref leftmost) = node {
+            stack.push(leftmost);
+            node = leftmost.left.as_ref().map(|n| &**n);
+        }
+    }
+
+    // just for iter_post_order_2()
+    fn push_left_branch_2<'node>(
+        mut node: Option<&'node Node<T>>,
+        stack: &mut Vec<(&'node Node<T>, bool)>,
+    ) {
+        while let Some(ref leftmost) = node {
+            stack.push((leftmost, false));
+            node = leftmost.left.as_ref().map(|n| &**n);
+        }
+    }
 }
 
 impl<T: Display> Display for Node<T> {
@@ -96,7 +117,30 @@ pub struct IntoIterLevelOrder<T> {
     queue: VecDeque<Box<Node<T>>>,
 }
 
+pub struct IterInOrder<'tree, T> {
+    stack: Vec<&'tree Node<T>>,
+}
+
+pub struct IterPreOrder<'tree, T> {
+    stack: Vec<&'tree Node<T>>,
+}
+
+pub struct IterPostOrder<'tree, T> {
+    last_visited: Option<&'tree Node<T>>,
+    stack: Vec<&'tree Node<T>>,
+}
+
+pub struct IterPostOrder2<'tree, T> {
+    // second thing true if right child already visited
+    stack: Vec<(&'tree Node<T>, bool)>,
+}
+
+pub struct IterLevelOrder<'tree, T> {
+    queue: VecDeque<&'tree Node<T>>,
+}
+
 impl<T> BinaryTree<T> {
+    // consuming iterators
     pub fn into_iter_in_order(self) -> IntoIterInOrder<T> {
         IntoIterInOrder {
             stack: self.root.into_iter().collect(),
@@ -115,6 +159,55 @@ impl<T> BinaryTree<T> {
     pub fn into_iter_level_order(self) -> IntoIterLevelOrder<T> {
         IntoIterLevelOrder {
             queue: self.root.into_iter().collect(),
+        }
+    }
+    // shared iterators
+    pub fn iter_in_order(&self) -> IterInOrder<T> {
+        IterInOrder {
+            stack: {
+                let mut stack = Vec::new();
+                Node::push_left_branch(self.root.as_ref().map(|n| &**n), &mut stack);
+                stack
+            },
+        }
+    }
+    pub fn iter_pre_order(&self) -> IterPreOrder<T> {
+        IterPreOrder {
+            stack: self.root.iter().map(|box_node| &**box_node).collect(),
+        }
+    }
+    pub fn iter_post_order(&self) -> IterPostOrder<T> {
+        // several ways possible:
+        // - recursion (well...)
+        // - save all visited nodes in hash set
+        // - two stacks: reverse postorder (modifiziertes preorder), dann reversen
+        // - save already visited children with entry <- build approximately this
+        //   ^ (similar to wikipedia, but right child is sufficient)
+        // - probably some other ways
+        IterPostOrder {
+            last_visited: None,
+            stack: {
+                let mut stack = Vec::new();
+                Node::push_left_branch(self.root.as_ref().map(|n| &**n), &mut stack);
+                stack
+            },
+        }
+    }
+    pub fn iter_post_order_2(&self) -> IterPostOrder2<T> {
+        // similar to iter_post_order(), but use simple boolean thing in stack.
+        // needs more space, but may be a bit faster
+        // also, boolean could be hidden in the ref for types >= 2 bytes o_O
+        IterPostOrder2 {
+            stack: {
+                let mut stack = Vec::new();
+                Node::push_left_branch_2(self.root.as_ref().map(|n| &**n), &mut stack);
+                stack
+            },
+        }
+    }
+    pub fn iter_level_order(&self) -> IterLevelOrder<T> {
+        IterLevelOrder {
+            queue: self.root.iter().map(|box_node| &**box_node).collect(),
         }
     }
 }
@@ -178,6 +271,83 @@ impl<T> Iterator for IntoIterLevelOrder<T> {
         left.map(|left| self.queue.push_back(left));
         right.map(|right| self.queue.push_back(right));
         Some(first.elem)
+    }
+}
+
+impl<'tree, T> Iterator for IterInOrder<'tree, T> {
+    type Item = &'tree T;
+    // cannot use same technique as in IntoIter, since the tree was not modified!
+    // alternative solution(?): for every entry save visited flag (or enum)
+    fn next(&mut self) -> Option<Self::Item> {
+        let top: &Node<T> = self.stack.pop()?;
+        let elem = &top.elem;
+        Node::push_left_branch(top.right.as_ref().map(|n| &**n), &mut self.stack);
+        Some(elem)
+    }
+}
+
+impl<'tree, T> Iterator for IterPreOrder<'tree, T> {
+    type Item = &'tree T;
+    fn next(&mut self) -> Option<Self::Item> {
+        let top = self.stack.pop()?;
+        top.right.as_ref().map(|right| self.stack.push(&*right));
+        top.left.as_ref().map(|left| self.stack.push(&*left));
+        Some(&top.elem)
+    }
+}
+
+impl<'tree, T> Iterator for IterPostOrder<'tree, T> {
+    type Item = &'tree T;
+
+    // Implementation inspired by https://en.wikipedia.org/wiki/Tree_traversal#Post-order_(LRN)
+    fn next(&mut self) -> Option<Self::Item> {
+        let mut peek_node: &Node<T> = self.stack.last()?;
+        // todo: extract somehow without making loop ugly?
+        // this needs exactly the right number of * and &, otherwise we end up comparing
+        // second-order references which is possible but not what we want here.
+        while peek_node.right.is_some()
+            && !std::ptr::eq(
+                *self.last_visited.as_ref().unwrap(),
+                &**peek_node.right.as_ref().unwrap(),
+            )
+        {
+            Node::push_left_branch(peek_node.right.as_ref().map(|n| &**n), &mut self.stack);
+            peek_node = self.stack.last().unwrap();
+        }
+        self.last_visited = self.stack.pop();
+        Some(&peek_node.elem)
+    }
+}
+
+impl<'tree, T> Iterator for IterPostOrder2<'tree, T> {
+    type Item = &'tree T;
+
+    // This is a bit ugly. I seem to be running into some weird Rust limitations here.
+    fn next(&mut self) -> Option<Self::Item> {
+        let (mut peek_node, ref mut visited_right): &mut (&Node<T>, bool) =
+            self.stack.last_mut()?;
+        let mut visited_right: &mut bool = visited_right; // mut ref mut seems forbidden. o_O
+        while peek_node.right.is_some() && !*visited_right {
+            *visited_right = true;
+            let temp = self.stack.last().unwrap();
+            peek_node = temp.0;
+            Node::push_left_branch_2(peek_node.right.as_ref().map(|n| &**n), &mut self.stack);
+            let temp = self.stack.last_mut().unwrap(); // workaround: no destructuring assignment :'(
+            peek_node = temp.0;
+            visited_right = &mut temp.1;
+        }
+        let lol = self.stack.pop();
+        Some(&lol.unwrap().0.elem)
+    }
+}
+
+impl<'tree, T> Iterator for IterLevelOrder<'tree, T> {
+    type Item = &'tree T;
+    fn next(&mut self) -> Option<Self::Item> {
+        let top: &Node<T> = self.queue.pop_front()?;
+        top.left.as_ref().map(|left| self.queue.push_back(left));
+        top.right.as_ref().map(|right| self.queue.push_back(right));
+        Some(&top.elem)
     }
 }
 
@@ -271,7 +441,7 @@ mod tests {
     }
 
     #[test]
-    fn iter() {
+    fn into_iter() {
         let tree = create_tree();
         let inorder: Vec<i32> = tree.into_iter_in_order().collect();
         assert_eq!(inorder, vec![7, 4, 2, 8, 5, 9, 1, 3, 6]);
@@ -283,6 +453,25 @@ mod tests {
         assert_eq!(postorder, vec![7, 4, 8, 9, 5, 2, 6, 3, 1]);
         let tree = create_tree();
         let levelorder: Vec<i32> = tree.into_iter_level_order().collect();
+        assert_eq!(levelorder, vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    }
+
+    #[test]
+    fn iter() {
+        let tree = create_tree();
+        let inorder: Vec<i32> = tree.iter_in_order().copied().collect();
+        assert_eq!(inorder, vec![7, 4, 2, 8, 5, 9, 1, 3, 6]);
+        let tree = create_tree();
+        let preorder: Vec<i32> = tree.iter_pre_order().copied().collect();
+        assert_eq!(preorder, vec![1, 2, 4, 7, 5, 8, 9, 3, 6]);
+        let tree = create_tree();
+        let postorder: Vec<i32> = tree.iter_post_order().copied().collect();
+        assert_eq!(postorder, vec![7, 4, 8, 9, 5, 2, 6, 3, 1]);
+        let tree = create_tree();
+        let postorder: Vec<i32> = tree.iter_post_order_2().copied().collect();
+        assert_eq!(postorder, vec![7, 4, 8, 9, 5, 2, 6, 3, 1]);
+        let tree = create_tree();
+        let levelorder: Vec<i32> = tree.iter_level_order().copied().collect();
         assert_eq!(levelorder, vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
     }
 

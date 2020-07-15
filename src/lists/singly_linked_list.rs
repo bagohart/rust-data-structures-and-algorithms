@@ -374,7 +374,7 @@ impl<T> SinglyLinkedList<T> {
         self.head.is_none()
     }
 
-    // I could use an iterator to do this or reuse some on the other methods,
+    // I could use an iterator to do this or reuse some of the other methods,
     // but it's just so much fun...
     pub fn merge(&mut self, mut other: Self) {
         if other.is_empty() {
