@@ -81,6 +81,14 @@ impl<T> Node<T> {
             node = leftmost.left.as_ref().map(|n| &**n);
         }
     }
+
+    // // todo: this looks completely broken.
+    // fn push_left_branch_mutable<'node>(mut node: Option<&'node mut Node<T>>, stack: &mut Vec<&'node mut Node<T>>) {
+    //     while let Some(ref mut leftmost) = node {
+    //         stack.push(leftmost);
+    //         node = leftmost.left.as_mut().map(|n| &mut **n);
+    //     }
+    // }
 }
 
 impl<T: Display> Display for Node<T> {
@@ -137,6 +145,23 @@ pub struct IterPostOrder2<'tree, T> {
 
 pub struct IterLevelOrder<'tree, T> {
     queue: VecDeque<&'tree Node<T>>,
+}
+
+pub struct IterMutInOrder<'tree, T> {
+    stack: Vec<&'tree mut Node<T>>,
+}
+
+pub struct IterMutPreOrder<'tree, T> {
+    stack: Vec<&'tree mut Node<T>>,
+}
+
+pub struct IterMutPostOrder<'tree, T> {
+    last_visited: Option<&'tree Node<T>>,
+    stack: Vec<&'tree Node<T>>,
+}
+
+pub struct IterMutLevelOrder<'tree, T> {
+    queue: VecDeque<&'tree mut Node<T>>,
 }
 
 impl<T> BinaryTree<T> {
@@ -210,6 +235,29 @@ impl<T> BinaryTree<T> {
             queue: self.root.iter().map(|box_node| &**box_node).collect(),
         }
     }
+    // mutable iterators
+    // // todo: hm
+    // pub fn iter_mut_in_order(&self) -> IterMutInOrder<T> {
+    //     IterMutInOrder {
+    //         stack: {
+    //             let mut stack = Vec::new();
+    //             Node::push_left_branch_mutable(self.root.as_mut().map(|n| &mut **n), &mut stack);
+    //             stack
+    //         },
+    //     }
+    // }
+
+    pub fn iter_mut_pre_order(&mut self) -> IterMutPreOrder<T> {
+        IterMutPreOrder {
+            stack: self.root.iter_mut().map(|box_node | &mut **box_node).collect(),
+        }
+    }
+    pub fn iter_mut_level_order(&mut self) -> IterMutLevelOrder<T> {
+        IterMutLevelOrder {
+            queue: self.root.iter_mut().map(|box_node | &mut **box_node).collect(),
+        }
+    }
+
 }
 
 impl<T> Iterator for IntoIterInOrder<T> {
@@ -351,6 +399,42 @@ impl<'tree, T> Iterator for IterLevelOrder<'tree, T> {
     }
 }
 
+// // todo: hm.
+// impl<'tree, T> Iterator for IterMutInOrder<'tree, T> {
+//     type Item = &'tree mut T;
+//     fn next(&mut self) -> Option<Self::Item> {
+//         let top: &mut Node<T> = self.stack.pop()?;
+//         let elem = &mut top.elem;
+//         Node::push_left_branch_mutable(top.right.as_mut().map(|n| &mut **n), &mut self.stack);
+//         Some(elem)
+//     }
+// }
+
+// Why does this work with mutable references and fits the borrowing Rules?
+// Because preorder: we always save mutable references to disjoint parts of the tree, and return
+// a mutable reference to the value, not to the node!
+// With inorder/postorder where we need to save several references to non-disjoint parts of the tree,
+// it doesn't work that way.
+impl<'tree, T> Iterator for IterMutPreOrder<'tree, T> {
+    type Item = &'tree mut T;
+    fn next(&mut self) -> Option<Self::Item> {
+        let top = self.stack.pop()?;
+        top.right.as_mut().map(|right| self.stack.push(&mut *right));
+        top.left.as_mut().map(|left| self.stack.push(&mut *left));
+        Some(&mut top.elem)
+    }
+}
+
+impl<'tree, T> Iterator for IterMutLevelOrder<'tree, T> {
+    type Item = &'tree mut T;
+    fn next(&mut self) -> Option<Self::Item> {
+        let top: &mut Node<T> = self.queue.pop_front()?;
+        top.left.as_mut().map(|left| self.queue.push_back(left));
+        top.right.as_mut().map(|right| self.queue.push_back(right));
+        Some(&mut top.elem)
+    }
+}
+
 #[derive(Debug)]
 pub struct BinaryTree<T> {
     pub root: Link<T>,
@@ -440,6 +524,7 @@ mod tests {
         //  7     8   9
     }
 
+
     #[test]
     fn into_iter() {
         let tree = create_tree();
@@ -472,6 +557,24 @@ mod tests {
         assert_eq!(postorder, vec![7, 4, 8, 9, 5, 2, 6, 3, 1]);
         let tree = create_tree();
         let levelorder: Vec<i32> = tree.iter_level_order().copied().collect();
+        assert_eq!(levelorder, vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    }
+
+    #[test]
+    fn iter_mut() {
+        let mut tree = create_tree();
+        // todo: why can't I call copied() on that iterator?
+        // ^ probably this is obvious: it could pass on the references as shared, which would be bad (:
+        // so I guess the real question is: why isn't copied() implemented on mutable iterators?
+        // ^ actually, no: when I give away the mutable reference as shared, there is no other access to it, so... hm.
+        // let preorder: Vec<i32> = tree.iter_mut_pre_order().map(|i| *i).collect(); // works
+        // let preorder: Vec<i32> = tree.iter_mut_pre_order().map(|&i| i).collect(); // not equivalent to above. why ?_?
+        // this... works. um ok?
+        let preorder: Vec<i32> = tree.iter_mut_pre_order().map(|i| &*i).copied().collect();
+        assert_eq!(preorder, vec![1, 2, 4, 7, 5, 8, 9, 3, 6]);
+
+        let mut tree = create_tree();
+        let levelorder: Vec<i32> = tree.iter_mut_level_order().map(|i| &*i).copied().collect();
         assert_eq!(levelorder, vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
     }
 
