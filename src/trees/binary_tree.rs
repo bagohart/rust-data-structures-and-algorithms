@@ -81,14 +81,6 @@ impl<T> Node<T> {
             node = leftmost.left.as_ref().map(|n| &**n);
         }
     }
-
-    // // todo: this looks completely broken.
-    // fn push_left_branch_mutable<'node>(mut node: Option<&'node mut Node<T>>, stack: &mut Vec<&'node mut Node<T>>) {
-    //     while let Some(ref mut leftmost) = node {
-    //         stack.push(leftmost);
-    //         node = leftmost.left.as_mut().map(|n| &mut **n);
-    //     }
-    // }
 }
 
 impl<T: Display> Display for Node<T> {
@@ -148,7 +140,21 @@ pub struct IterLevelOrder<'tree, T> {
 }
 
 pub struct IterMutInOrder<'tree, T> {
-    stack: Vec<&'tree mut Node<T>>,
+    // stack: Vec<NodeRef<'tree, T>>,
+    stack: Vec<(&'tree mut T, Option<&'tree mut Node<T>>, Option<&'tree mut Node<T>>)>,
+}
+
+pub struct IterMutInOrderOnlyRight<'tree, T> {
+    // stack: Vec<NodeRef<'tree, T>>,
+    stack: Vec<(&'tree mut T, Option<&'tree mut Link<T>>)>,
+}
+
+pub struct NodeRef<'tree, T> {
+    elem: &'tree mut T,
+    // depending on context this could mean that there is no link
+    // or that the link was already visited
+    left: Option<&'tree mut Node<T>>,
+    right: Option<&'tree mut Node<T>>,
 }
 
 pub struct IterMutPreOrder<'tree, T> {
@@ -235,29 +241,69 @@ impl<T> BinaryTree<T> {
             queue: self.root.iter().map(|box_node| &**box_node).collect(),
         }
     }
+
+    pub fn iter_mut_in_order_only_right(&mut self) -> IterMutInOrderOnlyRight<T> {
+        let mut node = &mut self.root;
+        let mut stack = Vec::new();
+        while node.is_some() {
+            let (elem, left, right) = node.as_mut().map(|n| (
+                    &mut n.elem,
+                    &mut n.left,
+                    &mut n.right
+            )
+            ).unwrap();
+            stack.push((elem, Some(right)));
+            node = left;
+        }
+        IterMutInOrderOnlyRight {
+            stack: stack,
+        }
+    }
+
     // mutable iterators
-    // // todo: hm
-    // pub fn iter_mut_in_order(&self) -> IterMutInOrder<T> {
-    //     IterMutInOrder {
-    //         stack: {
-    //             let mut stack = Vec::new();
-    //             Node::push_left_branch_mutable(self.root.as_mut().map(|n| &mut **n), &mut stack);
-    //             stack
-    //         },
-    //     }
-    // }
+    pub fn iter_mut_in_order(&mut self) -> IterMutInOrder<T> {
+        if self.root.is_some() {
+            // let (elem, left, right) = self
+            let tuple = self
+                .root
+                .as_mut()
+                .map(|root| {
+                    (
+                        &mut root.elem,
+                        root.left.as_mut().map(|n| &mut **n),
+                        root.right.as_mut().map(|n| &mut **n),
+                    )
+                })
+                .unwrap();
+            IterMutInOrder { stack: vec![tuple] }
+        } else {
+            IterMutInOrder { stack: vec![] }
+        }
+        // IterMutInOrder {
+        //     stack: self.root.iter_mut().map(|box_node| NodeRef {
+        //         elem: &mut box_node.elem,
+        //         left:
+        // }
+    }
 
     pub fn iter_mut_pre_order(&mut self) -> IterMutPreOrder<T> {
         IterMutPreOrder {
-            stack: self.root.iter_mut().map(|box_node | &mut **box_node).collect(),
+            stack: self
+                .root
+                .iter_mut()
+                .map(|box_node| &mut **box_node)
+                .collect(),
         }
     }
     pub fn iter_mut_level_order(&mut self) -> IterMutLevelOrder<T> {
         IterMutLevelOrder {
-            queue: self.root.iter_mut().map(|box_node | &mut **box_node).collect(),
+            queue: self
+                .root
+                .iter_mut()
+                .map(|box_node| &mut **box_node)
+                .collect(),
         }
     }
-
 }
 
 impl<T> Iterator for IntoIterInOrder<T> {
@@ -352,7 +398,7 @@ impl<'tree, T> Iterator for IterPostOrder<'tree, T> {
         let mut peek_node: &Node<T> = self.stack.last()?;
         // todo: extract somehow without making loop ugly?
         // this needs exactly the right number of * and &, otherwise we end up comparing
-        // second-order references which is possible but not what we want here.
+        // e.g. second-order references which is not what we want here.
         while peek_node.right.is_some()
             && !std::ptr::eq(
                 *self.last_visited.as_ref().unwrap(),
@@ -432,6 +478,35 @@ impl<'tree, T> Iterator for IterMutLevelOrder<'tree, T> {
         top.left.as_mut().map(|left| self.queue.push_back(left));
         top.right.as_mut().map(|right| self.queue.push_back(right));
         Some(&mut top.elem)
+    }
+}
+
+impl<'tree, T> Iterator for IterMutInOrderOnlyRight<'tree, T> {
+    type Item = &'tree mut T;
+    fn next(&mut self) -> Option<Self::Item> {
+        let top = self.stack.pop();
+        if top.is_none() {
+            return None;
+        }
+        let (elem, right) = top.unwrap();
+        let res = Some(elem);
+        // todo: extract
+        if right.is_some() {
+            let mut node = right.unwrap();
+            let mut stack = vec![];
+            while node.is_some() {
+                let (elem, left, right) = node.as_mut().map(|n| (
+                        &mut n.elem,
+                        &mut n.left,
+                        &mut n.right
+                )
+                ).unwrap();
+                stack.push((elem, Some(right)));
+                node = left;
+            }
+            self.stack.append(&mut stack);
+        }
+        res
     }
 }
 
@@ -524,7 +599,6 @@ mod tests {
         //  7     8   9
     }
 
-
     #[test]
     fn into_iter() {
         let tree = create_tree();
@@ -576,6 +650,10 @@ mod tests {
         let mut tree = create_tree();
         let levelorder: Vec<i32> = tree.iter_mut_level_order().map(|i| &*i).copied().collect();
         assert_eq!(levelorder, vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
+
+        let mut tree = create_tree();
+        let inorder: Vec<i32> = tree.iter_mut_in_order_only_right().map(|i| &*i).copied().collect();
+        assert_eq!(inorder, vec![7, 4, 2, 8, 5, 9, 1, 3, 6]);
     }
 
     #[test]
