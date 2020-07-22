@@ -140,21 +140,11 @@ pub struct IterLevelOrder<'tree, T> {
 }
 
 pub struct IterMutInOrder<'tree, T> {
-    // stack: Vec<NodeRef<'tree, T>>,
-    stack: Vec<(&'tree mut T, Option<&'tree mut Node<T>>, Option<&'tree mut Node<T>>)>,
+    stack: Vec<(&'tree mut T, Option<&'tree mut Box<Node<T>>>)>,
 }
 
 pub struct IterMutInOrderOnlyRight<'tree, T> {
-    // stack: Vec<NodeRef<'tree, T>>,
     stack: Vec<(&'tree mut T, Option<&'tree mut Link<T>>)>,
-}
-
-pub struct NodeRef<'tree, T> {
-    elem: &'tree mut T,
-    // depending on context this could mean that there is no link
-    // or that the link was already visited
-    left: Option<&'tree mut Node<T>>,
-    right: Option<&'tree mut Node<T>>,
 }
 
 pub struct IterMutPreOrder<'tree, T> {
@@ -242,48 +232,34 @@ impl<T> BinaryTree<T> {
         }
     }
 
+    // mutable iterators
     pub fn iter_mut_in_order_only_right(&mut self) -> IterMutInOrderOnlyRight<T> {
         let mut node = &mut self.root;
         let mut stack = Vec::new();
+        // do not modify this function, it works...
         while node.is_some() {
-            let (elem, left, right) = node.as_mut().map(|n| (
-                    &mut n.elem,
-                    &mut n.left,
-                    &mut n.right
-            )
-            ).unwrap();
+            let (elem, left, right) = node
+                .as_mut()
+                .map(|n| (&mut n.elem, &mut n.left, &mut n.right))
+                .unwrap();
             stack.push((elem, Some(right)));
             node = left;
         }
-        IterMutInOrderOnlyRight {
-            stack: stack,
-        }
+        IterMutInOrderOnlyRight { stack: stack }
     }
 
-    // mutable iterators
     pub fn iter_mut_in_order(&mut self) -> IterMutInOrder<T> {
-        if self.root.is_some() {
-            // let (elem, left, right) = self
-            let tuple = self
-                .root
+        let mut node = &mut self.root;
+        let mut stack = Vec::new();
+        while node.is_some() {
+            let (elem, left, right) = node
                 .as_mut()
-                .map(|root| {
-                    (
-                        &mut root.elem,
-                        root.left.as_mut().map(|n| &mut **n),
-                        root.right.as_mut().map(|n| &mut **n),
-                    )
-                })
+                .map(|n| (&mut n.elem, &mut n.left, &mut n.right))
                 .unwrap();
-            IterMutInOrder { stack: vec![tuple] }
-        } else {
-            IterMutInOrder { stack: vec![] }
+            stack.push((elem, right.as_mut()));
+            node = left;
         }
-        // IterMutInOrder {
-        //     stack: self.root.iter_mut().map(|box_node| NodeRef {
-        //         elem: &mut box_node.elem,
-        //         left:
-        // }
+        IterMutInOrder { stack }
     }
 
     pub fn iter_mut_pre_order(&mut self) -> IterMutPreOrder<T> {
@@ -445,16 +421,27 @@ impl<'tree, T> Iterator for IterLevelOrder<'tree, T> {
     }
 }
 
-// // todo: hm.
-// impl<'tree, T> Iterator for IterMutInOrder<'tree, T> {
-//     type Item = &'tree mut T;
-//     fn next(&mut self) -> Option<Self::Item> {
-//         let top: &mut Node<T> = self.stack.pop()?;
-//         let elem = &mut top.elem;
-//         Node::push_left_branch_mutable(top.right.as_mut().map(|n| &mut **n), &mut self.stack);
-//         Some(elem)
-//     }
-// }
+impl<'tree, T> Iterator for IterMutInOrder<'tree, T> {
+    type Item = &'tree mut T;
+    fn next(&mut self) -> Option<Self::Item> {
+        let top: (&mut T, Option<&mut Box<Node<T>>>) = self.stack.pop()?;
+        if top.1.is_some() {
+            let mut node = top.1;
+            while node.is_some() {
+                let mut r = node.unwrap();
+                let elem = &mut r.elem;
+                let right = r.right.as_mut();
+                self.stack.push((elem, right));
+                node = if r.left.is_some() {
+                    r.left.as_mut()
+                } else {
+                    None
+                }
+            }
+        }
+        Some(top.0)
+    }
+}
 
 // Why does this work with mutable references and fits the borrowing Rules?
 // Because preorder: we always save mutable references to disjoint parts of the tree, and return
@@ -495,12 +482,10 @@ impl<'tree, T> Iterator for IterMutInOrderOnlyRight<'tree, T> {
             let mut node = right.unwrap();
             let mut stack = vec![];
             while node.is_some() {
-                let (elem, left, right) = node.as_mut().map(|n| (
-                        &mut n.elem,
-                        &mut n.left,
-                        &mut n.right
-                )
-                ).unwrap();
+                let (elem, left, right) = node
+                    .as_mut()
+                    .map(|n| (&mut n.elem, &mut n.left, &mut n.right))
+                    .unwrap();
                 stack.push((elem, Some(right)));
                 node = left;
             }
@@ -652,7 +637,19 @@ mod tests {
         assert_eq!(levelorder, vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
 
         let mut tree = create_tree();
-        let inorder: Vec<i32> = tree.iter_mut_in_order_only_right().map(|i| &*i).copied().collect();
+        let inorder: Vec<i32> = tree
+            .iter_mut_in_order_only_right()
+            .map(|i| &*i)
+            .copied()
+            .collect();
+        assert_eq!(inorder, vec![7, 4, 2, 8, 5, 9, 1, 3, 6]);
+
+        let mut tree = create_tree();
+        let inorder: Vec<i32> = tree
+            .iter_mut_in_order()
+            .map(|i| &*i)
+            .copied()
+            .collect();
         assert_eq!(inorder, vec![7, 4, 2, 8, 5, 9, 1, 3, 6]);
     }
 
