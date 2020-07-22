@@ -250,33 +250,43 @@ impl<T> BinaryTree<T> {
     }
 
     pub fn iter_mut_in_order(&mut self) -> IterMutInOrder<T> {
-        let mut node = &mut self.root;
+        let node = self.root.as_mut();
         let mut stack = Vec::new();
-        while node.is_some() {
-            let (elem, left, right) = node
-                .as_mut()
-                .map(|n| (&mut n.elem, &mut n.left, &mut n.right))
-                .unwrap();
-            stack.push((elem, right.as_mut()));
-            node = left;
-        }
+        push_left_branch_mut_1(node, &mut stack);
         IterMutInOrder { stack }
+        // let mut node = &mut self.root;
+        // let mut stack = Vec::new();
+        // while node.is_some() {
+        //     let (elem, left, right) = node
+        //         .as_mut()
+        //         .map(|n| (&mut n.elem, &mut n.left, &mut n.right))
+        //         .unwrap();
+        //     stack.push((elem, right.as_mut()));
+        //     node = left;
+        // }
+        // IterMutInOrder { stack }
     }
 
     pub fn iter_mut_post_order(&mut self) -> IterMutPostOrder<T> {
+        let node = self.root.as_mut();
+        let mut stack = Vec::new();
+        push_left_branch_mut_1(node, &mut stack);
+        IterMutPostOrder { stack }
+
         // todo: almost copy-paste from iter_mut_in_order
         // maybe I can extract something
-        let mut node = &mut self.root;
-        let mut stack = Vec::new();
-        while node.is_some() {
-            let (elem, left, right) = node
-                .as_mut()
-                .map(|n| (&mut n.elem, &mut n.left, &mut n.right))
-                .unwrap();
-            stack.push((elem, right.as_mut()));
-            node = left;
-        }
-        IterMutPostOrder { stack }
+
+        // let mut node = &mut self.root;
+        // let mut stack = Vec::new();
+        // while node.is_some() {
+        //     let (elem, left, right) = node
+        //         .as_mut()
+        //         .map(|n| (&mut n.elem, &mut n.left, &mut n.right))
+        //         .unwrap();
+        //     stack.push((elem, right.as_mut()));
+        //     node = left;
+        // }
+        // IterMutPostOrder { stack }
     }
 
     pub fn iter_mut_pre_order(&mut self) -> IterMutPreOrder<T> {
