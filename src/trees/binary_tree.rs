@@ -424,22 +424,15 @@ impl<'tree, T> Iterator for IterLevelOrder<'tree, T> {
 impl<'tree, T> Iterator for IterMutInOrder<'tree, T> {
     type Item = &'tree mut T;
     fn next(&mut self) -> Option<Self::Item> {
-        let top: (&mut T, Option<&mut Box<Node<T>>>) = self.stack.pop()?;
-        if top.1.is_some() {
-            let mut node = top.1;
-            while node.is_some() {
-                let mut r = node.unwrap();
-                let elem = &mut r.elem;
-                let right = r.right.as_mut();
-                self.stack.push((elem, right));
-                node = if r.left.is_some() {
-                    r.left.as_mut()
-                } else {
-                    None
-                }
-            }
+        let (elem, mut node) = self.stack.pop()?;
+        // here happens the same thing as in iter_mut_in_order()
+        // but I cannot extract it because the types are subtly different.
+        // Here I have Option<&mut Box<Node<T>>> instead of &mut Option<Box<Node<T>>>
+        while let Some(n) = node {
+            self.stack.push((&mut n.elem, n.right.as_mut()));
+            node = n.left.as_mut();
         }
-        Some(top.0)
+        Some(elem)
     }
 }
 
@@ -645,11 +638,7 @@ mod tests {
         assert_eq!(inorder, vec![7, 4, 2, 8, 5, 9, 1, 3, 6]);
 
         let mut tree = create_tree();
-        let inorder: Vec<i32> = tree
-            .iter_mut_in_order()
-            .map(|i| &*i)
-            .copied()
-            .collect();
+        let inorder: Vec<i32> = tree.iter_mut_in_order().map(|i| &*i).copied().collect();
         assert_eq!(inorder, vec![7, 4, 2, 8, 5, 9, 1, 3, 6]);
     }
 
