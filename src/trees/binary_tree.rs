@@ -3,12 +3,9 @@ use std::fmt;
 use std::fmt::Display;
 
 // todo:
-// drop
-// inorder, preorder, postorder, levelorder
-// [x] into_iter
-// [x] iter
-// [ ] iter_mut
-// kompliziertere bäume bauen um postorder zu testen!
+// rotate krempel
+// insert
+// ... ?
 
 type Link<T> = Option<Box<Node<T>>>;
 
@@ -17,6 +14,18 @@ pub struct Node<T> {
     pub elem: T,
     pub left: Link<T>,
     pub right: Link<T>,
+}
+
+impl<T> Drop for BinaryTree<T> {
+    // level order removal of nodes. maybe I could extract this but why bother
+    fn drop(&mut self) {
+        let mut queue = VecDeque::new();
+        self.root.take().map(|r| queue.push_back(r));
+        while let Some(mut node) = queue.pop_front() {
+            node.left.take().map(|l| queue.push_back(l));
+            node.right.take().map(|r| queue.push_back(r));
+        }
+    }
 }
 
 impl<T> Node<T> {
@@ -145,7 +154,7 @@ pub struct IterMutInOrder<'tree, T> {
     stack: Vec<(&'tree mut T, Option<&'tree mut Box<Node<T>>>)>,
 }
 
-pub struct IterMutInOrderOnlyRight<'tree, T> {
+pub struct IterMutInOrderWeird<'tree, T> {
     stack: Vec<(&'tree mut T, Option<&'tree mut Link<T>>)>,
 }
 
@@ -163,24 +172,24 @@ pub struct IterMutLevelOrder<'tree, T> {
 
 impl<T> BinaryTree<T> {
     // consuming iterators
-    pub fn into_iter_in_order(self) -> IntoIterInOrder<T> {
+    pub fn into_iter_in_order(mut self) -> IntoIterInOrder<T> {
         IntoIterInOrder {
-            stack: self.root.into_iter().collect(),
+            stack: self.root.take().into_iter().collect(),
         }
     }
-    pub fn into_iter_pre_order(self) -> IntoIterPreOrder<T> {
+    pub fn into_iter_pre_order(mut self) -> IntoIterPreOrder<T> {
         IntoIterPreOrder {
-            stack: self.root.into_iter().collect(),
+            stack: self.root.take().into_iter().collect(),
         }
     }
-    pub fn into_iter_post_order(self) -> IntoIterPostOrder<T> {
+    pub fn into_iter_post_order(mut self) -> IntoIterPostOrder<T> {
         IntoIterPostOrder {
-            stack: self.root.into_iter().collect(),
+            stack: self.root.take().into_iter().collect(),
         }
     }
-    pub fn into_iter_level_order(self) -> IntoIterLevelOrder<T> {
+    pub fn into_iter_level_order(mut self) -> IntoIterLevelOrder<T> {
         IntoIterLevelOrder {
-            queue: self.root.into_iter().collect(),
+            queue: self.root.take().into_iter().collect(),
         }
     }
     // shared iterators
@@ -234,10 +243,9 @@ impl<T> BinaryTree<T> {
     }
 
     // mutable iterators
-    pub fn iter_mut_in_order_only_right(&mut self) -> IterMutInOrderOnlyRight<T> {
+    pub fn iter_mut_in_order_weird(&mut self) -> IterMutInOrderWeird<T> {
         let mut node = &mut self.root;
         let mut stack = Vec::new();
-        // do not modify this function, it works...
         while node.is_some() {
             let (elem, left, right) = node
                 .as_mut()
@@ -246,7 +254,7 @@ impl<T> BinaryTree<T> {
             stack.push((elem, Some(right)));
             node = left;
         }
-        IterMutInOrderOnlyRight { stack: stack }
+        IterMutInOrderWeird { stack: stack }
     }
 
     pub fn iter_mut_in_order(&mut self) -> IterMutInOrder<T> {
@@ -254,17 +262,6 @@ impl<T> BinaryTree<T> {
         let mut stack = Vec::new();
         push_left_branch_mut_1(node, &mut stack);
         IterMutInOrder { stack }
-        // let mut node = &mut self.root;
-        // let mut stack = Vec::new();
-        // while node.is_some() {
-        //     let (elem, left, right) = node
-        //         .as_mut()
-        //         .map(|n| (&mut n.elem, &mut n.left, &mut n.right))
-        //         .unwrap();
-        //     stack.push((elem, right.as_mut()));
-        //     node = left;
-        // }
-        // IterMutInOrder { stack }
     }
 
     pub fn iter_mut_post_order(&mut self) -> IterMutPostOrder<T> {
@@ -272,21 +269,6 @@ impl<T> BinaryTree<T> {
         let mut stack = Vec::new();
         push_left_branch_mut_1(node, &mut stack);
         IterMutPostOrder { stack }
-
-        // todo: almost copy-paste from iter_mut_in_order
-        // maybe I can extract something
-
-        // let mut node = &mut self.root;
-        // let mut stack = Vec::new();
-        // while node.is_some() {
-        //     let (elem, left, right) = node
-        //         .as_mut()
-        //         .map(|n| (&mut n.elem, &mut n.left, &mut n.right))
-        //         .unwrap();
-        //     stack.push((elem, right.as_mut()));
-        //     node = left;
-        // }
-        // IterMutPostOrder { stack }
     }
 
     pub fn iter_mut_pre_order(&mut self) -> IterMutPreOrder<T> {
@@ -506,7 +488,7 @@ impl<'tree, T> Iterator for IterMutLevelOrder<'tree, T> {
     }
 }
 
-impl<'tree, T> Iterator for IterMutInOrderOnlyRight<'tree, T> {
+impl<'tree, T> Iterator for IterMutInOrderWeird<'tree, T> {
     type Item = &'tree mut T;
     fn next(&mut self) -> Option<Self::Item> {
         let top = self.stack.pop();
@@ -515,7 +497,8 @@ impl<'tree, T> Iterator for IterMutInOrderOnlyRight<'tree, T> {
         }
         let (elem, right) = top.unwrap();
         let res = Some(elem);
-        // todo: extract
+        // extracting didn't work here (lifetime confusion)
+        // but in IterMutInOrder it works
         if right.is_some() {
             let mut node = right.unwrap();
             let mut stack = vec![];
@@ -748,7 +731,7 @@ mod tests {
 
         let mut tree = create_tree();
         let inorder: Vec<i32> = tree
-            .iter_mut_in_order_only_right()
+            .iter_mut_in_order_weird()
             .map(|i| &*i)
             .copied()
             .collect();
