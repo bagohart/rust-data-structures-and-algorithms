@@ -437,18 +437,23 @@ impl<'tree, T> Iterator for IterLevelOrder<'tree, T> {
     }
 }
 
+fn push_left_branch_mut_1<'tree, T>(
+    mut node: Option<&'tree mut Box<Node<T>>>,
+    stack: &mut Vec<(&'tree mut T, Option<&'tree mut Box<Node<T>>>)>,
+) {
+    while let Some(n) = node {
+        stack.push((&mut n.elem, n.right.as_mut()));
+        node = n.left.as_mut();
+    }
+}
+
 impl<'tree, T> Iterator for IterMutPostOrder<'tree, T> {
     type Item = &'tree mut T;
     fn next(&mut self) -> Option<Self::Item> {
         let (mut elem, mut right) = self.stack.pop()?;
-        // pushe linken ast von rechtem nachfolger, markiere abzweigung als besucht
         while right.is_some() {
             self.stack.push((elem, None));
-            let mut node = right;
-            while let Some(n) = node {
-                self.stack.push((&mut n.elem, n.right.as_mut()));
-                node = n.left.as_mut();
-            }
+            push_left_branch_mut_1(right, &mut self.stack);
             let temp = self.stack.pop().unwrap();
             elem = temp.0;
             right = temp.1;
@@ -460,14 +465,8 @@ impl<'tree, T> Iterator for IterMutPostOrder<'tree, T> {
 impl<'tree, T> Iterator for IterMutInOrder<'tree, T> {
     type Item = &'tree mut T;
     fn next(&mut self) -> Option<Self::Item> {
-        let (elem, mut node) = self.stack.pop()?;
-        // here happens the same thing as in iter_mut_in_order()
-        // but I cannot extract it because the types are subtly different.
-        // Here I have Option<&mut Box<Node<T>>> instead of &mut Option<Box<Node<T>>>
-        while let Some(n) = node {
-            self.stack.push((&mut n.elem, n.right.as_mut()));
-            node = n.left.as_mut();
-        }
+        let (elem, node) = self.stack.pop()?;
+        push_left_branch_mut_1(node, &mut self.stack);
         Some(elem)
     }
 }
