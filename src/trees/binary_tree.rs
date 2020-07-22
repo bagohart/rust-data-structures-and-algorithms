@@ -3,10 +3,12 @@ use std::fmt;
 use std::fmt::Display;
 
 // todo:
+// drop
 // inorder, preorder, postorder, levelorder
 // [x] into_iter
 // [x] iter
 // [ ] iter_mut
+// kompliziertere bäume bauen um postorder zu testen!
 
 type Link<T> = Option<Box<Node<T>>>;
 
@@ -152,8 +154,7 @@ pub struct IterMutPreOrder<'tree, T> {
 }
 
 pub struct IterMutPostOrder<'tree, T> {
-    last_visited: Option<&'tree Node<T>>,
-    stack: Vec<&'tree Node<T>>,
+    stack: Vec<(&'tree mut T, Option<&'tree mut Box<Node<T>>>)>,
 }
 
 pub struct IterMutLevelOrder<'tree, T> {
@@ -260,6 +261,22 @@ impl<T> BinaryTree<T> {
             node = left;
         }
         IterMutInOrder { stack }
+    }
+
+    pub fn iter_mut_post_order(&mut self) -> IterMutPostOrder<T> {
+        // todo: almost copy-paste from iter_mut_in_order
+        // maybe I can extract something
+        let mut node = &mut self.root;
+        let mut stack = Vec::new();
+        while node.is_some() {
+            let (elem, left, right) = node
+                .as_mut()
+                .map(|n| (&mut n.elem, &mut n.left, &mut n.right))
+                .unwrap();
+            stack.push((elem, right.as_mut()));
+            node = left;
+        }
+        IterMutPostOrder { stack }
     }
 
     pub fn iter_mut_pre_order(&mut self) -> IterMutPreOrder<T> {
@@ -372,7 +389,6 @@ impl<'tree, T> Iterator for IterPostOrder<'tree, T> {
     // Implementation inspired by https://en.wikipedia.org/wiki/Tree_traversal#Post-order_(LRN)
     fn next(&mut self) -> Option<Self::Item> {
         let mut peek_node: &Node<T> = self.stack.last()?;
-        // todo: extract somehow without making loop ugly?
         // this needs exactly the right number of * and &, otherwise we end up comparing
         // e.g. second-order references which is not what we want here.
         while peek_node.right.is_some()
@@ -418,6 +434,26 @@ impl<'tree, T> Iterator for IterLevelOrder<'tree, T> {
         top.left.as_ref().map(|left| self.queue.push_back(left));
         top.right.as_ref().map(|right| self.queue.push_back(right));
         Some(&top.elem)
+    }
+}
+
+impl<'tree, T> Iterator for IterMutPostOrder<'tree, T> {
+    type Item = &'tree mut T;
+    fn next(&mut self) -> Option<Self::Item> {
+        let (mut elem, mut right) = self.stack.pop()?;
+        // pushe linken ast von rechtem nachfolger, markiere abzweigung als besucht
+        while right.is_some() {
+            self.stack.push((elem, None));
+            let mut node = right;
+            while let Some(n) = node {
+                self.stack.push((&mut n.elem, n.right.as_mut()));
+                node = n.left.as_mut();
+            }
+            let temp = self.stack.pop().unwrap();
+            elem = temp.0;
+            right = temp.1;
+        }
+        Some(elem)
     }
 }
 
@@ -577,6 +613,72 @@ mod tests {
         //  7     8   9
     }
 
+    // like create_tree(), but checks postorder better
+    fn create_tree_post_order() -> BinaryTree<i32> {
+        let mut root = Node::new(1);
+        root.set_left_child(2);
+        root.set_right_child(3);
+        root.right.as_mut().unwrap().set_right_child(6);
+        root.left.as_mut().unwrap().set_left_child(4);
+        root.left.as_mut().unwrap().set_right_child(5);
+        root.left
+            .as_mut()
+            .unwrap()
+            .left
+            .as_mut()
+            .unwrap()
+            .set_left_child(7);
+        root.left
+            .as_mut()
+            .unwrap()
+            .left
+            .as_mut()
+            .unwrap()
+            .left
+            .as_mut()
+            .unwrap()
+            .set_right_child(1000);
+        root.left
+            .as_mut()
+            .unwrap()
+            .left
+            .as_mut()
+            .unwrap()
+            .left
+            .as_mut()
+            .unwrap()
+            .right
+            .as_mut()
+            .unwrap()
+            .set_right_child(1001);
+        root.left
+            .as_mut()
+            .unwrap()
+            .right
+            .as_mut()
+            .unwrap()
+            .set_left_child(8);
+        root.left
+            .as_mut()
+            .unwrap()
+            .right
+            .as_mut()
+            .unwrap()
+            .set_right_child(9);
+        BinaryTree::new(root)
+        //         1
+        //        /   \
+        //       2     3
+        //     /   \     \
+        //    4     5     6
+        //   /     / \
+        //  7     8   9
+        //    \
+        //    1000
+        //       \
+        //       1001
+    }
+
     #[test]
     fn into_iter() {
         let tree = create_tree();
@@ -588,6 +690,9 @@ mod tests {
         let tree = create_tree();
         let postorder: Vec<i32> = tree.into_iter_post_order().collect();
         assert_eq!(postorder, vec![7, 4, 8, 9, 5, 2, 6, 3, 1]);
+        let tree = create_tree_post_order();
+        let postorder: Vec<i32> = tree.into_iter_post_order().collect();
+        assert_eq!(postorder, vec![1001, 1000, 7, 4, 8, 9, 5, 2, 6, 3, 1]);
         let tree = create_tree();
         let levelorder: Vec<i32> = tree.into_iter_level_order().collect();
         assert_eq!(levelorder, vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
@@ -607,6 +712,9 @@ mod tests {
         let tree = create_tree();
         let postorder: Vec<i32> = tree.iter_post_order_2().copied().collect();
         assert_eq!(postorder, vec![7, 4, 8, 9, 5, 2, 6, 3, 1]);
+        let tree = create_tree_post_order();
+        let postorder: Vec<i32> = tree.iter_post_order_2().copied().collect();
+        assert_eq!(postorder, vec![1001, 1000, 7, 4, 8, 9, 5, 2, 6, 3, 1]);
         let tree = create_tree();
         let levelorder: Vec<i32> = tree.iter_level_order().copied().collect();
         assert_eq!(levelorder, vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
@@ -640,6 +748,14 @@ mod tests {
         let mut tree = create_tree();
         let inorder: Vec<i32> = tree.iter_mut_in_order().map(|i| &*i).copied().collect();
         assert_eq!(inorder, vec![7, 4, 2, 8, 5, 9, 1, 3, 6]);
+
+        let mut tree = create_tree();
+        let postorder: Vec<i32> = tree.iter_mut_post_order().map(|i| &*i).copied().collect();
+        assert_eq!(postorder, vec![7, 4, 8, 9, 5, 2, 6, 3, 1]);
+
+        let mut tree = create_tree_post_order();
+        let postorder: Vec<i32> = tree.iter_mut_post_order().map(|i| &*i).copied().collect();
+        assert_eq!(postorder, vec![1001, 1000, 7, 4, 8, 9, 5, 2, 6, 3, 1]);
     }
 
     #[test]
