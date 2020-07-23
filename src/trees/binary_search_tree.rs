@@ -1,8 +1,17 @@
+use std::cmp::Ordering;
 use std::collections::VecDeque;
 use std::fmt;
 use std::fmt::Display;
 
 // based on BinaryTree, but extended
+// todo:
+// insert
+// find
+// replace
+// delete
+// is_sorted()
+//
+// rotations:
 
 type Link<T> = Option<Box<Node<T>>>;
 
@@ -11,17 +20,6 @@ pub struct Node<T> {
     pub elem: T,
     pub left: Link<T>,
     pub right: Link<T>,
-}
-
-impl<T> Drop for BinarySearchTree<T> {
-    fn drop(&mut self) {
-        let mut queue = VecDeque::new();
-        self.root.take().map(|r| queue.push_back(r));
-        while let Some(mut node) = queue.pop_front() {
-            node.left.take().map(|l| queue.push_back(l));
-            node.right.take().map(|r| queue.push_back(r));
-        }
-    }
 }
 
 impl<T> Node<T> {
@@ -156,6 +154,17 @@ pub struct IterMutLevelOrder<'tree, T> {
     queue: VecDeque<&'tree mut Node<T>>,
 }
 
+impl<T> Drop for BinarySearchTree<T> {
+    fn drop(&mut self) {
+        let mut queue = VecDeque::new();
+        self.root.take().map(|r| queue.push_back(r));
+        while let Some(mut node) = queue.pop_front() {
+            node.left.take().map(|l| queue.push_back(l));
+            node.right.take().map(|r| queue.push_back(r));
+        }
+    }
+}
+
 impl<T> BinarySearchTree<T> {
     // consuming iterators
     pub fn into_iter_in_order(mut self) -> IntoIterInOrder<T> {
@@ -246,9 +255,9 @@ impl<T> BinarySearchTree<T> {
 impl<T> Iterator for IntoIterInOrder<T> {
     type Item = T;
     fn next(&mut self) -> Option<Self::Item> {
-        let mut last: &mut Node<T> = self.stack.last_mut()?; 
+        let mut last: &mut Node<T> = self.stack.last_mut()?;
         while last.left.is_some() {
-            let left = last.left.take().unwrap(); 
+            let left = last.left.take().unwrap();
             self.stack.push(left);
             last = self.stack.last_mut().unwrap();
         }
@@ -349,7 +358,6 @@ impl<'tree, T> Iterator for IterPostOrder<'tree, T> {
     }
 }
 
-
 impl<'tree, T> Iterator for IterLevelOrder<'tree, T> {
     type Item = &'tree T;
     fn next(&mut self) -> Option<Self::Item> {
@@ -414,13 +422,88 @@ impl<'tree, T> Iterator for IterMutLevelOrder<'tree, T> {
     }
 }
 
-
 #[derive(Debug)]
 pub struct BinarySearchTree<T> {
     pub root: Link<T>,
 }
 
-impl<T> BinarySearchTree<T> {
+impl<T: Ord> BinarySearchTree<T> {
+    pub fn find_mut(&mut self, elem: T) -> Option<&mut T> {
+        let mut node = self.root.as_mut();
+        while let Some(inner_node) = node {
+            match inner_node.elem.cmp(&elem) {
+                Ordering::Equal => return Some(&mut inner_node.elem),
+                Ordering::Less => node = inner_node.right.as_mut(),
+                Ordering::Greater => node = inner_node.left.as_mut(),
+            }
+        }
+        None
+    }
+
+    pub fn find(&self, elem: T) -> Option<&T> {
+        let mut node = self.root.as_ref();
+        while let Some(inner_node) = node {
+            match inner_node.elem.cmp(&elem) {
+                Ordering::Equal => return Some(&inner_node.elem),
+                Ordering::Less => node = inner_node.right.as_ref(),
+                Ordering::Greater => node = inner_node.left.as_ref(),
+            }
+        }
+        None
+    }
+
+    pub fn insert(&mut self, elem: T) {
+        let mut link: &mut Link<T> = &mut self.root;
+        while link.is_some() {
+            if elem < link.as_ref().unwrap().elem {
+                link = &mut link.as_mut().unwrap().left;
+            } else {
+                link = &mut link.as_mut().unwrap().right;
+            }
+        }
+        *link = Some(Box::new(Node {
+            elem: elem,
+            left: None,
+            right: None,
+        }));
+    }
+
+    pub fn is_sorted(&self) -> bool {
+        let vec: Vec<_> = self.iter_in_order().collect();
+        // is_sorted() on slices is still unstable, so...
+        for i in 0..vec.len() - 1 {
+            if vec[i] > vec[i + 1] {
+                return false;
+            }
+        }
+        true
+    }
+
+    // empty tree has height 0, tree with only root has height 1
+    pub fn height(&self) -> i32 {
+        // this is a bit ugly. oh well. :)
+        match self.root.as_ref() {
+            None => 0,
+            Some(root) => {
+                let mut max_height = 0;
+                let mut queue: VecDeque<(&Box<Node<T>>, i32)> = VecDeque::new();
+                queue.push_back((&root, 1));
+                while let Some(node) = queue.pop_front() {
+                    max_height = std::cmp::max(max_height, node.1);
+                    node.0
+                        .left
+                        .as_ref()
+                        .map(|n| queue.push_back((&n, node.1 + 1)));
+                    node.0
+                        .right
+                        .as_ref()
+                        .map(|n| queue.push_back((&n, node.1 + 1)));
+                }
+                max_height
+            }
+        }
+    }
+
     pub fn new_empty() -> Self {
         BinarySearchTree { root: None }
     }
@@ -570,6 +653,69 @@ mod tests {
         //       1001
     }
 
+    fn create_sorted_tree_1() -> BinarySearchTree<i32> {
+        let mut tree = BinarySearchTree::new_empty();
+        tree.insert(15);
+        tree.insert(5);
+        tree.insert(3);
+        tree.insert(12);
+        tree.insert(10);
+        tree.insert(14);
+        tree.insert(6);
+        tree.insert(16);
+        tree.insert(20);
+        tree.insert(17);
+        tree.insert(18);
+        tree.insert(31);
+        tree
+    }
+
+    #[test]
+    fn find() {
+        let tree = create_sorted_tree_1();
+        let root = tree.find(15);
+        let e10 = tree.find(10);
+        let e31 = tree.find(31);
+        let e1337 = tree.find(1337);
+        assert_eq!(root.unwrap(), &15);
+        assert_eq!(e10.unwrap(), &10);
+        assert_eq!(e31.unwrap(), &31);
+        assert!(e1337.is_none());
+    }
+
+    #[test]
+    fn is_sorted() {
+        let tree = create_sorted_tree_1();
+        assert_eq!(tree.is_sorted(), true);
+    }
+
+    #[test]
+    fn height() {
+        let tree = create_sorted_tree_1();
+        assert_eq!(tree.height(), 5);
+    }
+
+    #[test]
+    fn insert() {
+        let mut tree = BinarySearchTree::new_empty();
+        tree.insert(15);
+        tree.insert(5);
+        tree.insert(3);
+        tree.insert(12);
+        tree.insert(10);
+        tree.insert(14);
+        tree.insert(6);
+        tree.insert(16);
+        tree.insert(20);
+        tree.insert(17);
+        tree.insert(18);
+        tree.insert(31);
+        assert_eq!(
+            tree.to_string(),
+            "[15 (5 (3) (12 (10 (6) (Nil)) (14))) (16 (Nil) (20 (17 (Nil) (18)) (31)))]"
+        );
+    }
+
     #[test]
     fn into_iter() {
         let tree = create_tree();
@@ -600,12 +746,6 @@ mod tests {
         let tree = create_tree();
         let postorder: Vec<i32> = tree.iter_post_order().copied().collect();
         assert_eq!(postorder, vec![7, 4, 8, 9, 5, 2, 6, 3, 1]);
-        let tree = create_tree();
-        let postorder: Vec<i32> = tree.iter_post_order_2().copied().collect();
-        assert_eq!(postorder, vec![7, 4, 8, 9, 5, 2, 6, 3, 1]);
-        let tree = create_tree_post_order();
-        let postorder: Vec<i32> = tree.iter_post_order_2().copied().collect();
-        assert_eq!(postorder, vec![1001, 1000, 7, 4, 8, 9, 5, 2, 6, 3, 1]);
         let tree = create_tree();
         let levelorder: Vec<i32> = tree.iter_level_order().copied().collect();
         assert_eq!(levelorder, vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);

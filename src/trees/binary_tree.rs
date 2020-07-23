@@ -4,6 +4,9 @@ use std::fmt::Display;
 
 type Link<T> = Option<Box<Node<T>>>;
 
+// todo: ich glaube, iter_post_order() ist noch broken, wenn man es mit dem strengeren
+// tree testet o_O
+
 #[derive(Debug)]
 pub struct Node<T> {
     pub elem: T,
