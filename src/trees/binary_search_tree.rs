@@ -2,6 +2,8 @@ use std::collections::VecDeque;
 use std::fmt;
 use std::fmt::Display;
 
+// based on BinaryTree, but extended
+
 type Link<T> = Option<Box<Node<T>>>;
 
 #[derive(Debug)]
@@ -11,8 +13,7 @@ pub struct Node<T> {
     pub right: Link<T>,
 }
 
-impl<T> Drop for BinaryTree<T> {
-    // level order removal of nodes. maybe I could extract this but why bother
+impl<T> Drop for BinarySearchTree<T> {
     fn drop(&mut self) {
         let mut queue = VecDeque::new();
         self.root.take().map(|r| queue.push_back(r));
@@ -69,7 +70,6 @@ impl<T> Node<T> {
         func(&self.elem);
     }
 
-    // todo: can I use the borrow trait or something to make this a bit nicer?
     fn push_left_branch<'node>(mut node: Option<&'node Node<T>>, stack: &mut Vec<&'node Node<T>>) {
         while let Some(ref leftmost) = node {
             stack.push(leftmost);
@@ -136,21 +136,12 @@ pub struct IterPostOrder<'tree, T> {
     stack: Vec<&'tree Node<T>>,
 }
 
-pub struct IterPostOrder2<'tree, T> {
-    // second thing true if right child already visited
-    stack: Vec<(&'tree Node<T>, bool)>,
-}
-
 pub struct IterLevelOrder<'tree, T> {
     queue: VecDeque<&'tree Node<T>>,
 }
 
 pub struct IterMutInOrder<'tree, T> {
     stack: Vec<(&'tree mut T, Option<&'tree mut Box<Node<T>>>)>,
-}
-
-pub struct IterMutInOrderWeird<'tree, T> {
-    stack: Vec<(&'tree mut T, Option<&'tree mut Link<T>>)>,
 }
 
 pub struct IterMutPreOrder<'tree, T> {
@@ -165,7 +156,7 @@ pub struct IterMutLevelOrder<'tree, T> {
     queue: VecDeque<&'tree mut Node<T>>,
 }
 
-impl<T> BinaryTree<T> {
+impl<T> BinarySearchTree<T> {
     // consuming iterators
     pub fn into_iter_in_order(mut self) -> IntoIterInOrder<T> {
         IntoIterInOrder {
@@ -203,13 +194,6 @@ impl<T> BinaryTree<T> {
         }
     }
     pub fn iter_post_order(&self) -> IterPostOrder<T> {
-        // several ways possible:
-        // - recursion (well...)
-        // - save all visited nodes in hash set
-        // - two stacks: reverse postorder (modifiziertes preorder), dann reversen
-        // - save already visited children with entry <- build approximately this
-        //   ^ (similar to wikipedia, but right child is sufficient)
-        // - probably some other ways
         IterPostOrder {
             last_visited: None,
             stack: {
@@ -219,37 +203,10 @@ impl<T> BinaryTree<T> {
             },
         }
     }
-    pub fn iter_post_order_2(&self) -> IterPostOrder2<T> {
-        // similar to iter_post_order(), but use simple boolean thing in stack.
-        // needs more space, but may be a bit faster
-        // also, boolean could be hidden in the ref for types >= 2 bytes o_O
-        IterPostOrder2 {
-            stack: {
-                let mut stack = Vec::new();
-                Node::push_left_branch_2(self.root.as_ref().map(|n| &**n), &mut stack);
-                stack
-            },
-        }
-    }
     pub fn iter_level_order(&self) -> IterLevelOrder<T> {
         IterLevelOrder {
             queue: self.root.iter().map(|box_node| &**box_node).collect(),
         }
-    }
-
-    // mutable iterators
-    pub fn iter_mut_in_order_weird(&mut self) -> IterMutInOrderWeird<T> {
-        let mut node = &mut self.root;
-        let mut stack = Vec::new();
-        while node.is_some() {
-            let (elem, left, right) = node
-                .as_mut()
-                .map(|n| (&mut n.elem, &mut n.left, &mut n.right))
-                .unwrap();
-            stack.push((elem, Some(right)));
-            node = left;
-        }
-        IterMutInOrderWeird { stack: stack }
     }
 
     pub fn iter_mut_in_order(&mut self) -> IterMutInOrder<T> {
@@ -289,9 +246,9 @@ impl<T> BinaryTree<T> {
 impl<T> Iterator for IntoIterInOrder<T> {
     type Item = T;
     fn next(&mut self) -> Option<Self::Item> {
-        let mut last: &mut Node<T> = self.stack.last_mut()?; // box to mut implicit?
+        let mut last: &mut Node<T> = self.stack.last_mut()?; 
         while last.left.is_some() {
-            let left = last.left.take().unwrap(); // cannot inline (borrowing rules!)
+            let left = last.left.take().unwrap(); 
             self.stack.push(left);
             last = self.stack.last_mut().unwrap();
         }
@@ -392,27 +349,6 @@ impl<'tree, T> Iterator for IterPostOrder<'tree, T> {
     }
 }
 
-impl<'tree, T> Iterator for IterPostOrder2<'tree, T> {
-    type Item = &'tree T;
-
-    // This is a bit ugly. I seem to be running into some weird Rust limitations here.
-    fn next(&mut self) -> Option<Self::Item> {
-        let (mut peek_node, ref mut visited_right): &mut (&Node<T>, bool) =
-            self.stack.last_mut()?;
-        let mut visited_right: &mut bool = visited_right; // mut ref mut seems forbidden. o_O
-        while peek_node.right.is_some() && !*visited_right {
-            *visited_right = true;
-            let temp = self.stack.last().unwrap();
-            peek_node = temp.0;
-            Node::push_left_branch_2(peek_node.right.as_ref().map(|n| &**n), &mut self.stack);
-            let temp = self.stack.last_mut().unwrap(); // workaround: no destructuring assignment :'(
-            peek_node = temp.0;
-            visited_right = &mut temp.1;
-        }
-        let lol = self.stack.pop();
-        Some(&lol.unwrap().0.elem)
-    }
-}
 
 impl<'tree, T> Iterator for IterLevelOrder<'tree, T> {
     type Item = &'tree T;
@@ -458,11 +394,6 @@ impl<'tree, T> Iterator for IterMutInOrder<'tree, T> {
     }
 }
 
-// Why does this work with mutable references and fits the borrowing Rules?
-// Because preorder: we always save mutable references to disjoint parts of the tree, and return
-// a mutable reference to the value, not to the node!
-// With inorder/postorder where we need to save several references to non-disjoint parts of the tree,
-// it doesn't work that way.
 impl<'tree, T> Iterator for IterMutPreOrder<'tree, T> {
     type Item = &'tree mut T;
     fn next(&mut self) -> Option<Self::Item> {
@@ -483,45 +414,18 @@ impl<'tree, T> Iterator for IterMutLevelOrder<'tree, T> {
     }
 }
 
-impl<'tree, T> Iterator for IterMutInOrderWeird<'tree, T> {
-    type Item = &'tree mut T;
-    fn next(&mut self) -> Option<Self::Item> {
-        let top = self.stack.pop();
-        if top.is_none() {
-            return None;
-        }
-        let (elem, right) = top.unwrap();
-        let res = Some(elem);
-        // extracting didn't work here (lifetime confusion)
-        // but in IterMutInOrder it works
-        if right.is_some() {
-            let mut node = right.unwrap();
-            let mut stack = vec![];
-            while node.is_some() {
-                let (elem, left, right) = node
-                    .as_mut()
-                    .map(|n| (&mut n.elem, &mut n.left, &mut n.right))
-                    .unwrap();
-                stack.push((elem, Some(right)));
-                node = left;
-            }
-            self.stack.append(&mut stack);
-        }
-        res
-    }
-}
 
 #[derive(Debug)]
-pub struct BinaryTree<T> {
+pub struct BinarySearchTree<T> {
     pub root: Link<T>,
 }
 
-impl<T> BinaryTree<T> {
+impl<T> BinarySearchTree<T> {
     pub fn new_empty() -> Self {
-        BinaryTree { root: None }
+        BinarySearchTree { root: None }
     }
     pub fn new(root: Node<T>) -> Self {
-        BinaryTree {
+        BinarySearchTree {
             root: Some(Box::new(root)),
         }
     }
@@ -547,7 +451,7 @@ impl<T> BinaryTree<T> {
     }
 }
 
-impl<T: Display> Display for BinaryTree<T> {
+impl<T: Display> Display for BinarySearchTree<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let root = match self.root.as_ref() {
             None => String::from("Nil"),
@@ -559,10 +463,10 @@ impl<T: Display> Display for BinaryTree<T> {
 
 #[cfg(test)]
 mod tests {
-    use super::BinaryTree;
+    use super::BinarySearchTree;
     use super::Node;
 
-    fn create_tree() -> BinaryTree<i32> {
+    fn create_tree() -> BinarySearchTree<i32> {
         let mut root = Node::new(1);
         root.set_left_child(2);
         root.set_right_child(3);
@@ -590,7 +494,7 @@ mod tests {
             .as_mut()
             .unwrap()
             .set_right_child(9);
-        BinaryTree::new(root)
+        BinarySearchTree::new(root)
         //         1
         //        /   \
         //       2     3
@@ -601,7 +505,7 @@ mod tests {
     }
 
     // like create_tree(), but checks postorder better
-    fn create_tree_post_order() -> BinaryTree<i32> {
+    fn create_tree_post_order() -> BinarySearchTree<i32> {
         let mut root = Node::new(1);
         root.set_left_child(2);
         root.set_right_child(3);
@@ -652,7 +556,7 @@ mod tests {
             .as_mut()
             .unwrap()
             .set_right_child(9);
-        BinaryTree::new(root)
+        BinarySearchTree::new(root)
         //         1
         //        /   \
         //       2     3
@@ -710,27 +614,12 @@ mod tests {
     #[test]
     fn iter_mut() {
         let mut tree = create_tree();
-        // todo: why can't I call copied() on that iterator?
-        // ^ probably this is obvious: it could pass on the references as shared, which would be bad (:
-        // so I guess the real question is: why isn't copied() implemented on mutable iterators?
-        // ^ actually, no: when I give away the mutable reference as shared, there is no other access to it, so... hm.
-        // let preorder: Vec<i32> = tree.iter_mut_pre_order().map(|i| *i).collect(); // works
-        // let preorder: Vec<i32> = tree.iter_mut_pre_order().map(|&i| i).collect(); // not equivalent to above. why ?_?
-        // this... works. um ok?
         let preorder: Vec<i32> = tree.iter_mut_pre_order().map(|i| &*i).copied().collect();
         assert_eq!(preorder, vec![1, 2, 4, 7, 5, 8, 9, 3, 6]);
 
         let mut tree = create_tree();
         let levelorder: Vec<i32> = tree.iter_mut_level_order().map(|i| &*i).copied().collect();
         assert_eq!(levelorder, vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
-
-        let mut tree = create_tree();
-        let inorder: Vec<i32> = tree
-            .iter_mut_in_order_weird()
-            .map(|i| &*i)
-            .copied()
-            .collect();
-        assert_eq!(inorder, vec![7, 4, 2, 8, 5, 9, 1, 3, 6]);
 
         let mut tree = create_tree();
         let inorder: Vec<i32> = tree.iter_mut_in_order().map(|i| &*i).copied().collect();
@@ -751,7 +640,7 @@ mod tests {
         root.set_left_child(1);
         root.set_right_child(2);
         root.left.as_mut().unwrap().set_left_child(3);
-        let tree = BinaryTree::new(root);
+        let tree = BinarySearchTree::new(root);
         assert_eq!(tree.to_string(), "[0 (1 (3) (Nil)) (2)]");
     }
 
@@ -763,7 +652,7 @@ mod tests {
         root.set_left_child(1);
         root.set_right_child(2);
         root.left.as_mut().unwrap().set_left_child(3);
-        let tree = BinaryTree::new(root);
+        let tree = BinarySearchTree::new(root);
         println!("tree={}", tree);
         print!("inorder = [");
         tree.inorder(|e| print!("{} ", e));
@@ -774,6 +663,5 @@ mod tests {
         print!("postorder = [");
         tree.postorder(|e| print!("{} ", e));
         print!("]");
-        // panic!("lol");
     }
 }
