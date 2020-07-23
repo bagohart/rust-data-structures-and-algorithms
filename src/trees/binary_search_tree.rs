@@ -428,6 +428,96 @@ pub struct BinarySearchTree<T> {
 }
 
 impl<T: Ord> BinarySearchTree<T> {
+    // actually this really shouldn't be implemented because it destroys
+    // the sortedness of the tree. but for borrow checker battling purposes it
+    // was mildly interesting.
+    pub fn find_succ_mut(&mut self, elem: &T) -> Option<&mut T> {
+        if self.root.is_none() {
+            return None;
+        }
+        let mut mother = None;
+        let mut node = self.root.as_mut();
+        while let Some(inner_node) = node {
+            match inner_node.elem.cmp(&elem) {
+                Ordering::Equal => {
+                    node = Some(inner_node);
+                    break;
+                }
+                Ordering::Less => node = inner_node.right.as_mut(),
+                Ordering::Greater => {
+                    node = inner_node.left.as_mut();
+                    mother = Some(&mut inner_node.elem);
+                }
+            }
+        }
+        // if the node does not exist, it has no successor
+        let node = node?;
+        if node.right.is_some() {
+            // find the smallest (i.e. leftmost) node in the right subtree
+            // ...I could extract that with find_min()
+            let mut succ = node.right.as_mut().unwrap();
+            while succ.left.is_some() {
+                succ = succ.left.as_mut().unwrap();
+            }
+            Some(&mut succ.elem)
+        } else {
+            mother
+        }
+    }
+
+    pub fn find_succ(&self, elem: &T) -> Option<&T> {
+        if self.root.is_none() {
+            return None;
+        }
+        let mut mother = None;
+        let mut node = self.root.as_ref();
+        while let Some(inner_node) = node {
+            match inner_node.elem.cmp(&elem) {
+                Ordering::Equal => {
+                    node = Some(inner_node);
+                    break;
+                }
+                Ordering::Less => node = inner_node.right.as_ref(),
+                Ordering::Greater => {
+                    node = inner_node.left.as_ref();
+                    mother = Some(inner_node);
+                }
+            }
+        }
+        // if the node does not exist, it has no successor
+        let node = node?;
+        if node.right.is_some() {
+            // find the smallest (i.e. leftmost) node in the right subtree
+            // ...I could extract that with find_min()
+            let mut succ = node.right.as_ref().unwrap();
+            while succ.left.is_some() {
+                succ = succ.left.as_ref().unwrap();
+            }
+            Some(&succ.elem)
+        } else {
+            mother.as_ref().map(|m| &m.elem)
+        }
+    }
+
+    // find_max() would be analogous and thus boring
+    pub fn find_min(&self) -> Option<&T> {
+        // assumes correctly sorted tree
+        let mut node = self.root.as_ref()?;
+        while node.left.is_some() {
+            node = node.left.as_ref().unwrap();
+        }
+        Some(&node.elem)
+    }
+
+    pub fn find_min_mut(&mut self) -> Option<&T> {
+        // assumes correctly sorted tree
+        let mut node = self.root.as_mut()?;
+        while node.left.is_some() {
+            node = node.left.as_mut().unwrap();
+        }
+        Some(&mut node.elem)
+    }
+
     pub fn find_mut(&mut self, elem: T) -> Option<&mut T> {
         let mut node = self.root.as_mut();
         while let Some(inner_node) = node {
@@ -668,6 +758,38 @@ mod tests {
         tree.insert(18);
         tree.insert(31);
         tree
+    }
+
+    #[test]
+    fn find_succ() {
+        let tree = create_sorted_tree_1();
+        // successor is in right subtree
+        let succ = tree.find_succ(&16);
+        assert_eq!(succ.unwrap(), &17);
+        let succ = tree.find_succ(&5);
+        assert_eq!(succ.unwrap(), &6);
+
+        // successor is a parent node
+        let succ = tree.find_succ(&14);
+        assert_eq!(succ.unwrap(), &15);
+        let succ = tree.find_succ(&18);
+        assert_eq!(succ.unwrap(), &20);
+
+        let succ = tree.find_succ(&31);
+        assert_eq!(succ, None);
+
+        let mut tree = create_sorted_tree_1();
+        let succ = tree.find_succ_mut(&18);
+        assert_eq!(succ.unwrap(), &20);
+        let succ = tree.find_succ_mut(&31);
+        assert_eq!(succ, None);
+    }
+
+    #[test]
+    fn find_min() {
+        let tree = create_sorted_tree_1();
+        let min = tree.find_min();
+        assert_eq!(min.unwrap(), &3);
     }
 
     #[test]
