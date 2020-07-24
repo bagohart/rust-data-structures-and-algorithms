@@ -3,6 +3,35 @@ use std::collections::VecDeque;
 use std::fmt;
 use std::fmt::Display;
 
+// todo:
+// init height correctly
+// insert + rebalance
+// strategie: erstmal nur einfügen, danach von der wurzel neu suchen und rotieren.
+// sollte in safe rust problemlos möglich sein
+//
+// remove + rebalance
+// strategie: 
+// so wie bei einfügen, nur wiederholt. dabei geht etwas performance verloren, weil immer neu
+// gesucht wird, anstatt dem parent pointer nach oben zu folgen.
+// alternativ könnte der baum modifiziert werden, indem man temporär die ganzen knoten zerhackt.
+// das hat dann noch zusätzliche kosten, könnte aber in der O(n) analyse insgesamt vorteilhaft
+// sein. Ich denke, das sollte ich machen, sonst ist es zu einfach.
+// unsafe rust mit *mut T wäre natürlich die leichtere lösung, aber wo bleibt da all der spaß.
+//
+// kleine funktionen:
+// Node: 
+// is_balanced()
+//
+// AVLTree: 
+// top_unbalanced_node()
+// bottom_unbalanced_node()
+// split_top_to_bottom_unbalanced_node() <- zerhacke baum entlang diesem pfad, also speichere
+// - den letzten nicht abgehackten node und L/R
+// - ein array nodes und L/R
+// - den letzten teilbaum. evtl. einfach der letzte eintrag im array
+// Vec für stack abarbeitung scheint sehr angemessen.
+//
+
 // based on BinarySearchTree, but extended and restricted and removed
 // some things irrelevant for AVL property
 type Link<T> = Option<Box<Node<T>>>;
@@ -19,8 +48,7 @@ impl<T> Node<T> {
     pub fn new(elem: T) -> Node<T> {
         Node {
             elem,
-            // todo: 1?
-            height: 0,
+            height: 1,
             left: None,
             right: None,
         }
@@ -261,6 +289,7 @@ impl<T: Ord> AVLTree<T> {
         None
     }
 
+    // todo: rebalance
     pub fn remove(&mut self, elem: &T) {
         // By using links instead of nodes, we don't have to treat the root as a special case
         let node_link = self.find_mut_node_link(elem);
@@ -385,11 +414,11 @@ impl<T: Ord> AVLTree<T> {
         }
         *link = Some(Box::new(Node {
             elem: elem,
-            // todo: ???
             height: 1,
             left: None,
             right: None,
         }));
+        // todo: rebalance
     }
 
     pub fn is_sorted(&self) -> bool {
@@ -451,9 +480,9 @@ impl<T: Ord + Display> Display for AVLTree<T> {
 #[cfg(test)]
 mod tests {
     use super::AVLTree;
-    use super::Node;
+    // remove
+    // use super::Node;
     use super::RotateError;
-
 
     fn create_sorted_tree_1() -> AVLTree<i32> {
         let mut tree = AVLTree::new_empty();
