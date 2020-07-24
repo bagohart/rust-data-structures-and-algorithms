@@ -345,10 +345,11 @@ impl<'tree, T> Iterator for IterPostOrder<'tree, T> {
         // this needs exactly the right number of * and &, otherwise we end up comparing
         // e.g. second-order references which is not what we want here.
         while peek_node.right.is_some()
-            && !std::ptr::eq(
-                *self.last_visited.as_ref().unwrap(),
-                &**peek_node.right.as_ref().unwrap(),
-            )
+            && (self.last_visited.is_none()
+                || !std::ptr::eq(
+                    *self.last_visited.as_ref().unwrap(),
+                    &**peek_node.right.as_ref().unwrap(),
+                ))
         {
             Node::push_left_branch(peek_node.right.as_ref().map(|n| &**n), &mut self.stack);
             peek_node = self.stack.last().unwrap();
@@ -868,6 +869,9 @@ mod tests {
         let tree = create_tree();
         let postorder: Vec<i32> = tree.iter_post_order().copied().collect();
         assert_eq!(postorder, vec![7, 4, 8, 9, 5, 2, 6, 3, 1]);
+        let tree = create_tree_post_order();
+        let postorder: Vec<i32> = tree.iter_post_order().copied().collect();
+        assert_eq!(postorder, vec![1001, 1000, 7, 4, 8, 9, 5, 2, 6, 3, 1]);
         let tree = create_tree();
         let levelorder: Vec<i32> = tree.iter_level_order().copied().collect();
         assert_eq!(levelorder, vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);

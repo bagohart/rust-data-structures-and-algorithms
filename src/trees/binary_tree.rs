@@ -1,13 +1,12 @@
 use std::collections::VecDeque;
 use std::fmt;
 use std::fmt::Display;
+use std::mem;
 
 type Link<T> = Option<Box<Node<T>>>;
 
 // todo:
 // mirror()
-// ich glaube, iter_post_order() ist noch broken, wenn man es mit dem strengeren
-// tree testet o_O
 
 #[derive(Debug)]
 pub struct Node<T> {
@@ -171,6 +170,23 @@ pub struct IterMutLevelOrder<'tree, T> {
 }
 
 impl<T> BinaryTree<T> {
+    fn swap_left_right(node: &mut Node<T>) {
+        mem::swap(&mut node.left, &mut node.right);
+    }
+
+    pub fn mirror(&mut self) {
+        // use level order traversal to swap all left/right successors
+        let mut queue: VecDeque<&mut Link<T>> = VecDeque::new();
+        queue.push_back(&mut self.root);
+        while let Some(node) = queue.pop_front() {
+            node.as_mut().map(|n| {
+                Self::swap_left_right(&mut **n);
+                queue.push_back(&mut n.left);
+                queue.push_back(&mut n.right);
+            });
+        }
+    }
+
     // consuming iterators
     pub fn into_iter_in_order(mut self) -> IntoIterInOrder<T> {
         IntoIterInOrder {
@@ -670,6 +686,25 @@ mod tests {
         //    1000
         //       \
         //       1001
+    }
+
+    #[test]
+    fn mirror() {
+        let mut tree = create_tree_post_order();
+        assert_eq!(
+            tree.to_string(),
+            "[1 (2 (4 (7 (Nil) (1000 (Nil) (1001))) (Nil)) (5 (8) (9))) (3 (Nil) (6))]"
+        );
+        tree.mirror();
+        assert_eq!(
+            tree.to_string(),
+            "[1 (3 (6) (Nil)) (2 (5 (9) (8)) (4 (Nil) (7 (1000 (1001) (Nil)) (Nil))))]"
+        );
+        tree.mirror();
+        assert_eq!(
+            tree.to_string(),
+            "[1 (2 (4 (7 (Nil) (1000 (Nil) (1001))) (Nil)) (5 (8) (9))) (3 (Nil) (6))]"
+        );
     }
 
     #[test]
