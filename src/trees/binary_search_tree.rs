@@ -6,6 +6,10 @@ use std::fmt::Display;
 // based on BinaryTree, but extended
 // todo:
 // rotations:
+// left
+// right
+//
+// then avl tree
 
 type Link<T> = Option<Box<Node<T>>>;
 
@@ -443,7 +447,87 @@ pub struct BinarySearchTree<T> {
     pub root: Link<T>,
 }
 
+#[derive(Debug, PartialEq)]
+pub enum RotateError {
+    MissingKey,
+    MissingChild,
+}
+
 impl<T: Ord> BinarySearchTree<T> {
+    // returns true iff the node could be rotated
+    // which is always the case if it exists and has a left child
+    // "right" denotes the direction in which the node moves, and downward
+    //          elem
+    //         /    \
+    //        l      C
+    //       /  \
+    //      A    B
+    //      ->
+    //      l
+    //    /  \
+    //   A   elem
+    //      /   \
+    //     B     C
+    pub fn rotate_right(&mut self, elem: &T) -> Result<(), RotateError> {
+        let parent_link = self.find_mut_node_link(elem);
+        if parent_link.is_none() {
+            return Err(RotateError::MissingKey);
+        }
+        let parent_link: &mut Link<T> = parent_link.unwrap();
+        if parent_link.as_ref().unwrap().left.is_none() {
+            return Err(RotateError::MissingChild);
+        }
+
+        // remove left child...
+        let mut left_child = parent_link.as_mut().unwrap().left.take();
+        // ... and its right subtree from the tree
+        let left_child_right_subtree = left_child.as_mut().unwrap().right.take();
+        // also remove found node from tree
+        let mut top = parent_link.take();
+        // now rotate all the things around
+        top.as_mut().unwrap().left = left_child_right_subtree;
+        left_child.as_mut().unwrap().right = top;
+        *parent_link = left_child;
+        Ok(())
+    }
+
+    // returns true iff the node could be rotated
+    // which is always the case if it exists and has a right child
+    // "left" denotes the direction in which the node moves, and downward
+    //    elem
+    //    /  \
+    //   A    l
+    //      /   \
+    //     B     C
+    //      ->
+    //           l
+    //         /   \
+    //      elem    C
+    //       /  \
+    //      A    B
+    pub fn rotate_left(&mut self, elem: &T) -> Result<(), RotateError> {
+        let parent_link = self.find_mut_node_link(elem);
+        if parent_link.is_none() {
+            return Err(RotateError::MissingKey);
+        }
+        let parent_link: &mut Link<T> = parent_link.unwrap();
+        if parent_link.as_ref().unwrap().right.is_none() {
+            return Err(RotateError::MissingChild);
+        }
+
+        // remove right child...
+        let mut right_child = parent_link.as_mut().unwrap().right.take();
+        // ... and its right subtree from the tree
+        let right_child_left_subtree = right_child.as_mut().unwrap().left.take();
+        // also remove found node from tree
+        let mut top = parent_link.take();
+        // now rotate all the things around
+        top.as_mut().unwrap().right = right_child_left_subtree;
+        right_child.as_mut().unwrap().left = top;
+        *parent_link = right_child;
+        Ok(())
+    }
+
     fn find_mut_node_link(&mut self, elem: &T) -> Option<&mut Link<T>> {
         let mut node_link = &mut self.root;
         while node_link.is_some() {
@@ -718,6 +802,7 @@ impl<T: Display> Display for BinarySearchTree<T> {
 mod tests {
     use super::BinarySearchTree;
     use super::Node;
+    use super::RotateError;
 
     fn create_tree() -> BinarySearchTree<i32> {
         let mut root = Node::new(1);
@@ -849,7 +934,47 @@ mod tests {
         //   6             18
     }
 
+    // ori: "[15 (5 (3) (12 (10 (6) (Nil)) (14))) (16 (Nil) (20 (17 (Nil) (18)) (31)))]"
     #[test]
+    fn rotate_left() {
+        let mut tree = create_sorted_tree_1();
+        let _ = tree.rotate_left(&17);
+        assert_eq!(
+            tree.to_string(),
+            "[15 (5 (3) (12 (10 (6) (Nil)) (14))) (16 (Nil) (20 (18 (17) (Nil)) (31)))]"
+        );
+        let _ = tree.rotate_left(&5);
+        assert_eq!(
+            tree.to_string(),
+            "[15 (12 (5 (3) (10 (6) (Nil))) (14)) (16 (Nil) (20 (18 (17) (Nil)) (31)))]"
+        );
+
+        let e = tree.rotate_left(&1337);
+        assert_eq!(e.unwrap_err(), RotateError::MissingKey);
+        let e = tree.rotate_right(&31);
+        assert_eq!(e.unwrap_err(), RotateError::MissingChild);
+    }
+
+    #[test]
+    fn rotate_right() {
+        let mut tree = create_sorted_tree_1();
+        let _ = tree.rotate_right(&5);
+        assert_eq!(
+            tree.to_string(),
+            "[15 (3 (Nil) (5 (Nil) (12 (10 (6) (Nil)) (14)))) (16 (Nil) (20 (17 (Nil) (18)) (31)))]"
+        );
+        let _ = tree.rotate_right(&20);
+        assert_eq!(
+            tree.to_string(),
+            "[15 (3 (Nil) (5 (Nil) (12 (10 (6) (Nil)) (14)))) (16 (Nil) (17 (Nil) (20 (18) (31))))]"
+        );
+
+        let e = tree.rotate_right(&3);
+        assert_eq!(e.unwrap_err(), RotateError::MissingChild);
+        let e = tree.rotate_right(&1337);
+        assert_eq!(e.unwrap_err(), RotateError::MissingKey);
+    }
+
     fn remove() {
         let mut tree = create_sorted_tree_1();
         tree.remove(&3);
