@@ -5,12 +5,6 @@ use std::fmt::Display;
 
 // based on BinaryTree, but extended
 // todo:
-// insert
-// find
-// replace
-// delete
-// is_sorted()
-//
 // rotations:
 
 type Link<T> = Option<Box<Node<T>>>;
@@ -29,6 +23,27 @@ impl<T> Node<T> {
             left: None,
             right: None,
         }
+    }
+
+    pub fn has_no_children(&self) -> bool {
+        self.left.is_none() && self.right.is_none()
+    }
+
+    pub fn has_exactly_one_child(&self) -> bool {
+        self.left.is_some() ^ self.right.is_some()
+    }
+
+    pub fn take_only_child_link(&mut self) -> Link<T> {
+        assert!(self.has_exactly_one_child());
+        if self.left.is_some() {
+            self.left.take()
+        } else {
+            self.right.take()
+        }
+    }
+
+    pub fn has_two_children(&self) -> bool {
+        self.left.is_some() && self.right.is_some()
     }
 
     // discard old left subtree if necessary
@@ -429,8 +444,67 @@ pub struct BinarySearchTree<T> {
 }
 
 impl<T: Ord> BinarySearchTree<T> {
-    // // todo: 
-    // pub fn remove
+    fn find_mut_node_link(&mut self, elem: &T) -> Option<&mut Link<T>> {
+        let mut node_link = &mut self.root;
+        while node_link.is_some() {
+            // ¯\(u_u)/¯ more elegant while let construction didn't please the borrow checker
+            match node_link.as_ref().unwrap().elem.cmp(&elem) {
+                Ordering::Equal => return Some(node_link),
+                Ordering::Less => node_link = &mut node_link.as_mut().unwrap().right,
+                Ordering::Greater => node_link = &mut node_link.as_mut().unwrap().left,
+            }
+        }
+        None
+    }
+
+    pub fn remove(&mut self, elem: &T) {
+        // By using links instead of nodes, we don't have to treat the root as a special case
+        let node_link = self.find_mut_node_link(elem);
+        // this construction is inelegant, but if let is annoying here, too =/
+        let node_link: &mut Link<T> = if node_link.is_some() {
+            node_link.unwrap()
+        } else {
+            return;
+        };
+        let node: &mut Box<Node<T>> = node_link.as_mut().unwrap();
+        if node.has_no_children() {
+            // remove found node, easiest case
+            *node_link = None;
+        } else if node.has_exactly_one_child() {
+            // "skip" found node, easy case
+            *node_link = node.take_only_child_link();
+        } else {
+            // node has 2 successors, difficult case
+            // it might be possible to extract some code from the find_succ() method
+            // but here we need to use links to cut out the node, so it would not necessarily become
+            // more obvious what is going on
+
+            // find successor node
+            let succ_link = {
+                let mut succ_link: &mut Link<T> = &mut node.right;
+                while succ_link.as_ref().unwrap().left.is_some() {
+                    succ_link = &mut succ_link.as_mut().unwrap().left;
+                }
+                succ_link
+            };
+
+            // cut successor node out of tree
+            let mut succ_node = succ_link.take();
+
+            // remove children from soon-to-be-removed-node
+            let link_left = node.left.take();
+            let link_right = node.right.take();
+
+            // append children to successor node
+            succ_node.as_mut().unwrap().left = link_left;
+            succ_node.as_mut().unwrap().right = link_right;
+
+            // replace target node by successor node
+            *node_link = succ_node;
+            // old node is dropped implicitly.
+            // Since we took out the children, there is no danger of stack overflow
+        }
+    }
 
     // actually this really shouldn't be implemented because it destroys
     // the sortedness of the tree. but for borrow checker battling purposes it
@@ -522,6 +596,7 @@ impl<T: Ord> BinarySearchTree<T> {
         Some(&mut node.elem)
     }
 
+    // this could use the find_mut_node() function
     pub fn find_mut(&mut self, elem: &T) -> Option<&mut T> {
         let mut node = self.root.as_mut();
         while let Some(inner_node) = node {
@@ -534,6 +609,7 @@ impl<T: Ord> BinarySearchTree<T> {
         None
     }
 
+    // this could use the find_mut_node() function
     pub fn find(&self, elem: &T) -> Option<&T> {
         let mut node = self.root.as_ref();
         while let Some(inner_node) = node {
@@ -762,6 +838,41 @@ mod tests {
         tree.insert(18);
         tree.insert(31);
         tree
+        //         15
+        //      /     \
+        //     5       16
+        //   /   \       \
+        //  3     12      20
+        //       /  \     / \
+        //     10    14  17  31
+        //    /           \
+        //   6             18
+    }
+
+    #[test]
+    fn remove() {
+        let mut tree = create_sorted_tree_1();
+        tree.remove(&3);
+        assert_eq!(
+            tree.to_string(),
+            "[15 (5 (Nil) (12 (10 (6) (Nil)) (14))) (16 (Nil) (20 (17 (Nil) (18)) (31)))]"
+        );
+        tree.remove(&5);
+        assert_eq!(
+            tree.to_string(),
+            "[15 (12 (10 (6) (Nil)) (14)) (16 (Nil) (20 (17 (Nil) (18)) (31)))]"
+        );
+        tree.remove(&12);
+        assert_eq!(
+            tree.to_string(),
+            "[15 (14 (10 (6) (Nil)) (Nil)) (16 (Nil) (20 (17 (Nil) (18)) (31)))]"
+        );
+        let mut tree = create_sorted_tree_1();
+        tree.remove(&5);
+        assert_eq!(
+            tree.to_string(),
+            "[15 (6 (3) (12 (10) (14))) (16 (Nil) (20 (17 (Nil) (18)) (31)))]"
+        );
     }
 
     #[test]
