@@ -12,8 +12,9 @@ mod sort;
 // [x] priority queue, vector based
 // [x] singly linked list
 // [ ] doubly linked list
-// [ ] binary tree
+// [x] binary tree
 // [ ] binary search tree
+// [ ] AVL tree
 // [ ] red black tree
 // [ ] graph(s)
 // [ ] b something tree(s)
