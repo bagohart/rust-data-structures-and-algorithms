@@ -429,6 +429,9 @@ pub struct BinarySearchTree<T> {
 }
 
 impl<T: Ord> BinarySearchTree<T> {
+    // // todo: 
+    // pub fn remove
+
     // actually this really shouldn't be implemented because it destroys
     // the sortedness of the tree. but for borrow checker battling purposes it
     // was mildly interesting.
@@ -519,7 +522,7 @@ impl<T: Ord> BinarySearchTree<T> {
         Some(&mut node.elem)
     }
 
-    pub fn find_mut(&mut self, elem: T) -> Option<&mut T> {
+    pub fn find_mut(&mut self, elem: &T) -> Option<&mut T> {
         let mut node = self.root.as_mut();
         while let Some(inner_node) = node {
             match inner_node.elem.cmp(&elem) {
@@ -531,7 +534,7 @@ impl<T: Ord> BinarySearchTree<T> {
         None
     }
 
-    pub fn find(&self, elem: T) -> Option<&T> {
+    pub fn find(&self, elem: &T) -> Option<&T> {
         let mut node = self.root.as_ref();
         while let Some(inner_node) = node {
             match inner_node.elem.cmp(&elem) {
@@ -796,10 +799,10 @@ mod tests {
     #[test]
     fn find() {
         let tree = create_sorted_tree_1();
-        let root = tree.find(15);
-        let e10 = tree.find(10);
-        let e31 = tree.find(31);
-        let e1337 = tree.find(1337);
+        let root = tree.find(&15);
+        let e10 = tree.find(&10);
+        let e31 = tree.find(&31);
+        let e1337 = tree.find(&1337);
         assert_eq!(root.unwrap(), &15);
         assert_eq!(e10.unwrap(), &10);
         assert_eq!(e31.unwrap(), &31);
