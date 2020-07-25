@@ -55,6 +55,14 @@ impl<T> Node<T> {
         }
     }
 
+    // compares the height of both subtrees, does not recalculate them
+    // ignores the height of the node itself
+    pub fn is_balanced(&self) -> bool {
+        let left_height = self.left.as_ref().map(|n| n.height).unwrap_or(0);
+        let right_height = self.right.as_ref().map(|n| n.height).unwrap_or(0);
+        (left_height - right_height).abs() > 1
+    }
+
     pub fn has_no_children(&self) -> bool {
         self.left.is_none() && self.right.is_none()
     }
@@ -198,8 +206,10 @@ pub struct AVLTree<T: Ord> {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum RotateError {
-    MissingKey,
+    MissingRoot,
     MissingChild,
+    // todo: remove
+    MissingKey,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -209,6 +219,49 @@ pub enum Direction {
 }
 
 impl<T: Ord> AVLTree<T> {
+    fn rotate_right_node(parent_link: &mut Link<T>) -> Result<(), RotateError> {
+        if parent_link.is_none() {
+            return Err(RotateError::MissingRoot);
+        }
+        if parent_link.as_ref().unwrap().left.is_none() {
+            return Err(RotateError::MissingChild);
+        }
+
+        // remove left child...
+        let mut left_child = parent_link.as_mut().unwrap().left.take();
+        // ... and its right subtree from the tree
+        let left_child_right_subtree = left_child.as_mut().unwrap().right.take();
+        // also remove found node from tree
+        let mut top = parent_link.take();
+        // now rotate all the things around
+        top.as_mut().unwrap().left = left_child_right_subtree;
+        left_child.as_mut().unwrap().right = top;
+        *parent_link = left_child;
+        Ok(())
+    }
+
+    fn rotate_left_node(parent_link: &mut Link<T>) -> Result<(), RotateError> {
+        if parent_link.is_none() {
+            return Err(RotateError::MissingRoot);
+        }
+        if parent_link.as_ref().unwrap().right.is_none() {
+            return Err(RotateError::MissingChild);
+        }
+
+        // remove right child...
+        let mut right_child = parent_link.as_mut().unwrap().right.take();
+        // ... and its right subtree from the tree
+        let right_child_left_subtree = right_child.as_mut().unwrap().left.take();
+        // also remove found node from tree
+        let mut top = parent_link.take();
+        // now rotate all the things around
+        top.as_mut().unwrap().right = right_child_left_subtree;
+        right_child.as_mut().unwrap().left = top;
+        *parent_link = right_child;
+        Ok(())
+    }
+
+    // // todo: remove
     // returns true iff the node could be rotated
     // which is always the case if it exists and has a left child
     // "right" denotes the direction in which the node moves, and downward
@@ -450,6 +503,10 @@ impl<T: Ord> AVLTree<T> {
         self.root = subtree_link;
     }
 
+    fn balance(subtree_link: &mut Link<T>) {
+        // todo: 
+    }
+
     // elements are unique, so if the element already exists, return the old one
     // ok, this is really bad. let's see how to do this with only safe rust:
     // go down to insert node. split path in single nodes
@@ -505,10 +562,10 @@ impl<T: Ord> AVLTree<T> {
             left: None,
             right: None,
         });
-        // Step 2: reconstruct tree and correct height. stop on unbalanced node.
-        let mut balanced = true;
+        // Step 2: insert node, reconstruct tree and correct height. stop on unbalanced node.
         let mut path_node;
-        while balanced && !stack.is_empty() {
+        // todo: while let
+        while !stack.is_empty() {
             let (temp_node, direction) = stack.pop().unwrap();
             path_node = temp_node;
             match direction {
@@ -516,76 +573,30 @@ impl<T: Ord> AVLTree<T> {
                 Direction::Right => path_node.right = Some(new_subtree),
             };
             new_subtree = path_node;
+            let old_height = new_subtree.height;
             let new_height = AVLTree::compute_height_from_subtrees(&new_subtree);
-            if new_height == new_subtree.height {
+            if new_height == old_height {
                 self.rebuild_tree_without_changes_to_structure(Some(new_subtree), stack);
                 return None;
             } else {
-                // check if balanced, then magic
+                assert!(new_height > old_height);
+                new_subtree.height = new_height;
+                if new_subtree.is_balanced() {
+                    continue;
+                } else {
+                    let mut new_subtree_link = Some(new_subtree);
+                    AVLTree::balance(&mut new_subtree_link);
+                    // after balancing, the subtree has the same height as before
+                    // therefore, no changes in ancestors
+                    self.rebuild_tree_without_changes_to_structure(new_subtree_link, stack);
+                    return None;
+                }
             }
         }
-
+        // None rebalancing was necessary, but the height changed everywhere. This is not unusual.
+        // Can happen e.g. if a node is inserted into a tree where only the root exists
+        self.root = Some(new_subtree);
         None
-
-        // let mut link: &mut Link<T> = &mut self.stack.last_mut();
-        // while link.is_some() {
-        //     match elem.cmp(&link.as_ref().unwrap().elem) {
-        //         Ordering::Equal => {
-        //             // no rebalancing necessary, as the tree's structure does not change!
-        //             return Some(mem::replace(&mut link.as_mut().unwrap().elem, elem));
-        //         }
-        //         Ordering::Less => {
-        //             let (height, left_link, right_link) = link
-        //                 .as_mut()
-        //                 .map(|l| (&mut l.height, &mut l.left, &l.right))
-        //                 .unwrap();
-        //             stack.push((height, right_link));
-        //             link = left_link;
-        //         }
-        //         Ordering::Greater => {
-        //             let (height, left_link, right_link) = link
-        //                 .as_mut()
-        //                 .map(|l| (&mut l.height, &l.left, &mut l.right))
-        //                 .unwrap();
-        //             stack.push((height, left_link));
-        //             link = right_link;
-        //         }
-        //     }
-        // }
-        // *link = Some(Box::new(Node {
-        //     elem: elem,
-        //     height: 1,
-        //     left: None,
-        //     right: None,
-        // }));
-        // let mut updated_height = 1;
-        // let mut needs_balancing = false;
-        // while let Some((height, other_node)) = stack.pop() {
-        //     let other_subtree_height = other_node.as_ref().map(|n| n.height).unwrap_or(0);
-        //     let new_height = max(other_subtree_height, updated_height);
-        //     if new_height + 1 != *height {
-        //         *height = new_height;
-        //         if (other_subtree_height - updated_height).abs() > 1 {
-        //             // if the height did not change, then there is no need to balance
-        //             needs_balancing = true;
-        //             // we don't save the unbalanced node here, since we need a mutable reference
-        //             // to do anything with it, and then the borrow checker won't like that at all
-        //             // since we need lots of mutable references on the tree for this to work
-        //             // this makes an additional tree traversal necessary
-        //             // which is only log(n) so it is sort of ok.
-        //         }
-        //     } else {
-        //         // if the height of a node is still correct,
-        //         // then the height of all parent nodes is correct, too.
-        //         break;
-        //     }
-        // }
-        // if needs_balancing {
-        //     let mut deepest_unbalanced_node_link = self.find_unique_deepest_unbalanced_node_link();
-        //     // // todo:
-        //     // 2. rotate as appropriate
-        // }
-        // None
     }
 
     pub fn is_sorted(&self) -> bool {
