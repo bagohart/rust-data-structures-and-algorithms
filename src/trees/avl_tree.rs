@@ -196,10 +196,16 @@ pub struct AVLTree<T: Ord> {
     pub root: Link<T>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum RotateError {
     MissingKey,
     MissingChild,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum Direction {
+    Left,
+    Right,
 }
 
 impl<T: Ord> AVLTree<T> {
@@ -403,23 +409,45 @@ impl<T: Ord> AVLTree<T> {
         }
         None
     }
-    
-    // returns None if there is no unbalanced node or 
+    // // todo: remove, probably
+    // returns None if there is no unbalanced node or
     // if there are unbalanced nodes in both left and right subtree
     // this method should be called after insertion and
     // todo(?) maybe deletion
-    fn find_unique_deepest_unbalanced_node_link(&mut self) -> Option<&mut Link<T>> {
-        // not so easy, node might be deep in the tree
-        // need to find the deepest unbalanced node on the path from
-        // the root to the newly inserted node
-        // therefore, this method needs a path as argument
-        // i.e. a number of references, or L/R list o_O
-        // guess I don't get around the list after all,
-        // otherwise I need to search the whole tree in this method!
-        // this would be something like O(n/2) which is bad m_m
-        let mut link = &mut self.root;
-        while 
+    // fn find_unique_deepest_unbalanced_node_link(&mut self) -> Option<&mut Link<T>> {
+    // not so easy, node might be deep in the tree
+    // need to find the deepest unbalanced node on the path from
+    // the root to the newly inserted node
+    // therefore, this method needs a path as argument
+    // i.e. a number of references, or L/R list o_O
+    // guess I don't get around the list after all,
+    // otherwise I need to search the whole tree in this method!
+    // this would be something like O(n/2) which is bad m_m
+    // let mut link = &mut self.root;
+    // while
+    // }
 
+    // helper function for insert(). relies on the height in the immediate subnodes to be correct.
+    fn compute_height_from_subtrees(node: &Box<Node<T>>) -> i32 {
+        let left_height = node.left.as_ref().map(|n| n.height).unwrap_or(0);
+        let right_height = node.right.as_ref().map(|n| n.height).unwrap_or(0);
+        max(left_height, right_height) + 1
+    }
+
+    // helper function for insert()
+    fn rebuild_tree_without_changes_to_structure(
+        &mut self,
+        mut subtree_link: Link<T>,
+        mut stack: Vec<(Box<Node<T>>, Direction)>,
+    ) {
+        while let Some((mut parent_node, direction)) = stack.pop() {
+            match direction {
+                Direction::Left => parent_node.left = subtree_link,
+                Direction::Right => parent_node.right = subtree_link,
+            }
+            subtree_link = Some(parent_node);
+        }
+        self.root = subtree_link;
     }
 
     // elements are unique, so if the element already exists, return the old one
@@ -430,67 +458,134 @@ impl<T: Ord> AVLTree<T> {
     // - rotate as appropriate
     // - reconstruct remaining path, heights there are correct, do not modify
     // o_O
+    // problem: if comparison fails, tree is completely broken.
+    // I could circumvent that by catching the panic (new thread) and gluing it together again,
+    // or by saving the things in state belonging to tree,
+    // or by doing two passes: on the first try to see if it works.
+    // (if comparison panics *sometimes* then that's bad)
+    // in this case, it seems acceptable if the tree is just lost.
     pub fn insert(&mut self, elem: T) -> Option<T> {
-        let mut stack: Vec<(&mut i32, &Link<T>)> = Vec::new();
-        let mut link: &mut Link<T> = &mut self.root;
-        while link.is_some() {
-            match elem.cmp(&link.as_ref().unwrap().elem) {
+        // root treatment is annoying =/
+        if self.root.is_none() {
+            self.root = Some(Box::new(Node {
+                elem: elem,
+                height: 1,
+                left: None,
+                right: None,
+            }));
+            return None;
+        }
+
+        // Step 1: find place for new node and split path
+        let mut stack: Vec<(Box<Node<T>>, Direction)> =
+            Vec::with_capacity(self.root.as_ref().unwrap().height as usize);
+        let mut subtree_link: Link<T> = self.root.take();
+        while subtree_link.is_some() {
+            match elem.cmp(&subtree_link.as_ref().unwrap().elem) {
                 Ordering::Equal => {
-                    // no rebalancing necessary, as the tree's structure does not change!
-                    return Some(mem::replace(&mut link.as_mut().unwrap().elem, elem));
+                    let old_value = mem::replace(&mut subtree_link.as_mut().unwrap().elem, elem);
+                    self.rebuild_tree_without_changes_to_structure(subtree_link, stack);
+                    return Some(old_value);
                 }
                 Ordering::Less => {
-                    let (height, left_link, right_link) = link
-                        .as_mut()
-                        .map(|l| (&mut l.height, &mut l.left, &l.right))
-                        .unwrap();
-                    stack.push((height, right_link));
-                    link = left_link;
+                    let next_link = subtree_link.as_mut().unwrap().left.take();
+                    stack.push((subtree_link.unwrap(), Direction::Left));
+                    subtree_link = next_link;
                 }
                 Ordering::Greater => {
-                    let (height, left_link, right_link) = link
-                        .as_mut()
-                        .map(|l| (&mut l.height, &l.left, &mut l.right))
-                        .unwrap();
-                    stack.push((height, left_link));
-                    link = right_link;
+                    let next_link = subtree_link.as_mut().unwrap().right.take();
+                    stack.push((subtree_link.unwrap(), Direction::Right));
+                    subtree_link = next_link;
                 }
             }
         }
-        *link = Some(Box::new(Node {
+        let mut new_subtree: Box<Node<T>> = Box::new(Node {
             elem: elem,
             height: 1,
             left: None,
             right: None,
-        }));
-        let mut updated_height = 1;
-        let mut needs_balancing = false;
-        while let Some((height, other_node)) = stack.pop() {
-            let other_subtree_height = other_node.as_ref().map(|n| n.height).unwrap_or(0);
-            let new_height = max(other_subtree_height, updated_height);
-            if new_height + 1 != *height {
-                *height = new_height;
-                if (other_subtree_height - updated_height).abs() > 1 {
-                    // if the height did not change, then there is no need to balance
-                    needs_balancing = true;
-                    // we don't save the unbalanced node here, since we need a mutable reference
-                    // to do anything with it, and then the borrow checker won't like that at all
-                    // since we need lots of mutable references on the tree for this to work
-                    // this makes an additional tree traversal necessary
-                    // which is only log(n) so it is sort of ok.
-                }
+        });
+        // Step 2: reconstruct tree and correct height. stop on unbalanced node.
+        let mut balanced = true;
+        let mut path_node;
+        while balanced && !stack.is_empty() {
+            let (temp_node, direction) = stack.pop().unwrap();
+            path_node = temp_node;
+            match direction {
+                Direction::Left => path_node.left = Some(new_subtree),
+                Direction::Right => path_node.right = Some(new_subtree),
+            };
+            new_subtree = path_node;
+            let new_height = AVLTree::compute_height_from_subtrees(&new_subtree);
+            if new_height == new_subtree.height {
+                self.rebuild_tree_without_changes_to_structure(Some(new_subtree), stack);
+                return None;
             } else {
-                // if the height of a node is still correct,
-                // then the height of all parent nodes is correct, too.
-                break;
+                // check if balanced, then magic
             }
         }
-        if needs_balancing {
-            let mut deepest_unbalanced_node_link = self.find_unique_deepest_unbalanced_node_link();
-            // // todo: 
-            // 2. rotate as appropriate
-        }
+
         None
+
+        // let mut link: &mut Link<T> = &mut self.stack.last_mut();
+        // while link.is_some() {
+        //     match elem.cmp(&link.as_ref().unwrap().elem) {
+        //         Ordering::Equal => {
+        //             // no rebalancing necessary, as the tree's structure does not change!
+        //             return Some(mem::replace(&mut link.as_mut().unwrap().elem, elem));
+        //         }
+        //         Ordering::Less => {
+        //             let (height, left_link, right_link) = link
+        //                 .as_mut()
+        //                 .map(|l| (&mut l.height, &mut l.left, &l.right))
+        //                 .unwrap();
+        //             stack.push((height, right_link));
+        //             link = left_link;
+        //         }
+        //         Ordering::Greater => {
+        //             let (height, left_link, right_link) = link
+        //                 .as_mut()
+        //                 .map(|l| (&mut l.height, &l.left, &mut l.right))
+        //                 .unwrap();
+        //             stack.push((height, left_link));
+        //             link = right_link;
+        //         }
+        //     }
+        // }
+        // *link = Some(Box::new(Node {
+        //     elem: elem,
+        //     height: 1,
+        //     left: None,
+        //     right: None,
+        // }));
+        // let mut updated_height = 1;
+        // let mut needs_balancing = false;
+        // while let Some((height, other_node)) = stack.pop() {
+        //     let other_subtree_height = other_node.as_ref().map(|n| n.height).unwrap_or(0);
+        //     let new_height = max(other_subtree_height, updated_height);
+        //     if new_height + 1 != *height {
+        //         *height = new_height;
+        //         if (other_subtree_height - updated_height).abs() > 1 {
+        //             // if the height did not change, then there is no need to balance
+        //             needs_balancing = true;
+        //             // we don't save the unbalanced node here, since we need a mutable reference
+        //             // to do anything with it, and then the borrow checker won't like that at all
+        //             // since we need lots of mutable references on the tree for this to work
+        //             // this makes an additional tree traversal necessary
+        //             // which is only log(n) so it is sort of ok.
+        //         }
+        //     } else {
+        //         // if the height of a node is still correct,
+        //         // then the height of all parent nodes is correct, too.
+        //         break;
+        //     }
+        // }
+        // if needs_balancing {
+        //     let mut deepest_unbalanced_node_link = self.find_unique_deepest_unbalanced_node_link();
+        //     // // todo:
+        //     // 2. rotate as appropriate
+        // }
+        // None
     }
 
     pub fn is_sorted(&self) -> bool {
