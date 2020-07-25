@@ -5,7 +5,11 @@ use std::fmt;
 use std::fmt::Display;
 use std::mem;
 
-// todo:
+// todo neu:
+// comprehensive integrity checks
+// remove more useless stuff
+
+// todo alt:
 // insert + rebalance
 // strategie: erstmal nur einfügen, danach von der wurzel neu suchen und rotieren.
 // sollte in safe rust problemlos möglich sein
@@ -46,6 +50,28 @@ pub struct Node<T> {
 }
 
 impl<T: Ord> Node<T> {
+    pub fn assert_balanced(&self) {
+        assert!((self.get_height_left_subtree() - self.get_height_right_subtree()).abs() <= 1);
+        self.left.as_ref().map(|n| n.assert_balanced());
+        self.right.as_ref().map(|n| n.assert_balanced());
+    }
+    pub fn assert_sorted(&self) {
+        self.left.as_ref().map(|left| left.elem < self.elem);
+        self.right.as_ref().map(|right| right.elem > self.elem);
+        self.left.as_ref().map(|n| n.assert_sorted());
+        self.right.as_ref().map(|n| n.assert_sorted());
+    }
+    pub fn assert_correct_heights(&self) {
+        assert!(
+            self.height == max(
+                self.get_height_left_subtree(),
+                self.get_height_right_subtree()
+            ) + 1
+        );
+        self.left.as_ref().map(|n| n.assert_correct_heights());
+        self.right.as_ref().map(|n| n.assert_correct_heights());
+    }
+
     pub fn new(elem: T) -> Node<T> {
         Node {
             elem,
@@ -60,6 +86,14 @@ impl<T: Ord> Node<T> {
         let left_height = AVLTree::get_height_from_link(&self.left);
         let right_height = AVLTree::get_height_from_link(&self.right);
         self.height = max(left_height, right_height) + 1;
+    }
+
+    pub fn get_height_left_subtree(&self) -> i32 {
+        AVLTree::get_height_from_link(&self.left)
+    }
+
+    pub fn get_height_right_subtree(&self) -> i32 {
+        AVLTree::get_height_from_link(&self.right)
     }
 
     // compares the height of both subtrees, does not recalculate them
@@ -175,7 +209,7 @@ impl<T> Iterator for IntoIterInOrder<T> {
     }
 }
 
-impl<'tree, T:Ord> Iterator for IterInOrder<'tree, T> {
+impl<'tree, T: Ord> Iterator for IterInOrder<'tree, T> {
     type Item = &'tree T;
     // cannot use same technique as in IntoIter, since the tree was not modified!
     // alternative solution(?): for every entry save visited flag (or enum)
@@ -212,66 +246,29 @@ pub struct AVLTree<T: Ord> {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum RotateError {
-    MissingRoot,
-    MissingChild,
-    // todo: remove
-    MissingKey,
-}
-
-#[derive(Debug, PartialEq, Eq)]
 pub enum Direction {
     Left,
     Right,
 }
 
 impl<T: Ord> AVLTree<T> {
-    // todo: heights !_!
-    fn rotate_right_node(parent_link: &mut Link<T>) -> Result<(), RotateError> {
-        if parent_link.is_none() {
-            return Err(RotateError::MissingRoot);
-        }
-        if parent_link.as_ref().unwrap().left.is_none() {
-            return Err(RotateError::MissingChild);
-        }
-
-        // remove left child...
-        let mut left_child = parent_link.as_mut().unwrap().left.take();
-        // ... and its right subtree from the tree
-        let left_child_right_subtree = left_child.as_mut().unwrap().right.take();
-        // also remove found node from tree
-        let mut top = parent_link.take();
-        // now rotate all the things around
-        top.as_mut().unwrap().left = left_child_right_subtree;
-        left_child.as_mut().unwrap().right = top;
-        *parent_link = left_child;
-        Ok(())
+    // todo: recursive things. only for sanity tests.
+    fn assert_balanced(&self) {
+        self.root.as_ref().map(|root| root.assert_balanced());
+    }
+    fn assert_sorted(&self) {
+        self.root.as_ref().map(|root| root.assert_sorted());
+    }
+    fn assert_correct_heights(&self) {
+        self.root.as_ref().map(|root| root.assert_correct_heights());
+    }
+    fn assert_ok(&self) {
+        self.assert_balanced();
+        self.assert_sorted();
+        self.assert_correct_heights();
     }
 
-    fn rotate_left_node(parent_link: &mut Link<T>) -> Result<(), RotateError> {
-        if parent_link.is_none() {
-            return Err(RotateError::MissingRoot);
-        }
-        if parent_link.as_ref().unwrap().right.is_none() {
-            return Err(RotateError::MissingChild);
-        }
-
-        // remove right child...
-        let mut right_child = parent_link.as_mut().unwrap().right.take();
-        // ... and its right subtree from the tree
-        let right_child_left_subtree = right_child.as_mut().unwrap().left.take();
-        // also remove found node from tree
-        let mut top = parent_link.take();
-        // now rotate all the things around
-        top.as_mut().unwrap().right = right_child_left_subtree;
-        right_child.as_mut().unwrap().left = top;
-        *parent_link = right_child;
-        Ok(())
-    }
-
-    // // todo: remove
-    // returns true iff the node could be rotated
-    // which is always the case if it exists and has a left child
+    // succeeds if it exists and has a left child
     // "right" denotes the direction in which the node moves, and downward
     //          elem
     //         /    \
@@ -284,14 +281,12 @@ impl<T: Ord> AVLTree<T> {
     //   A   elem
     //      /   \
     //     B     C
-    pub fn rotate_right(&mut self, elem: &T) -> Result<(), RotateError> {
-        let parent_link = self.find_mut_node_link(elem);
+    fn rotate_right_node(parent_link: &mut Link<T>) {
         if parent_link.is_none() {
-            return Err(RotateError::MissingKey);
+            panic!("called rotate_right_node() on empty subtree!");
         }
-        let parent_link: &mut Link<T> = parent_link.unwrap();
         if parent_link.as_ref().unwrap().left.is_none() {
-            return Err(RotateError::MissingChild);
+            panic!("called rotate_right_node() without left child!");
         }
 
         // remove left child...
@@ -302,13 +297,16 @@ impl<T: Ord> AVLTree<T> {
         let mut top = parent_link.take();
         // now rotate all the things around
         top.as_mut().unwrap().left = left_child_right_subtree;
+        top.as_mut().unwrap().update_height_relying_on_subtrees();
         left_child.as_mut().unwrap().right = top;
+        left_child
+            .as_mut()
+            .unwrap()
+            .update_height_relying_on_subtrees();
         *parent_link = left_child;
-        Ok(())
     }
 
-    // returns true iff the node could be rotated
-    // which is always the case if it exists and has a right child
+    // succeeds if it exists and has a right child
     // "left" denotes the direction in which the node moves, and downward
     //    elem
     //    /  \
@@ -321,14 +319,12 @@ impl<T: Ord> AVLTree<T> {
     //      elem    C
     //       /  \
     //      A    B
-    pub fn rotate_left(&mut self, elem: &T) -> Result<(), RotateError> {
-        let parent_link = self.find_mut_node_link(elem);
+    fn rotate_left_node(parent_link: &mut Link<T>) {
         if parent_link.is_none() {
-            return Err(RotateError::MissingKey);
+            panic!("called rotate_right_node() on empty subtree!");
         }
-        let parent_link: &mut Link<T> = parent_link.unwrap();
         if parent_link.as_ref().unwrap().right.is_none() {
-            return Err(RotateError::MissingChild);
+            panic!("called rotate_right_node() without right child!");
         }
 
         // remove right child...
@@ -339,9 +335,13 @@ impl<T: Ord> AVLTree<T> {
         let mut top = parent_link.take();
         // now rotate all the things around
         top.as_mut().unwrap().right = right_child_left_subtree;
+        top.as_mut().unwrap().update_height_relying_on_subtrees();
         right_child.as_mut().unwrap().left = top;
+        right_child
+            .as_mut()
+            .unwrap()
+            .update_height_relying_on_subtrees();
         *parent_link = right_child;
-        Ok(())
     }
 
     fn find_mut_node_link(&mut self, elem: &T) -> Option<&mut Link<T>> {
@@ -691,7 +691,6 @@ mod tests {
     use super::AVLTree;
     // remove
     // use super::Node;
-    use super::RotateError;
 
     fn create_sorted_tree_1() -> AVLTree<i32> {
         let mut tree = AVLTree::new_empty();
@@ -723,43 +722,45 @@ mod tests {
     }
 
     #[test]
-    fn rotate_left() {
-        let mut tree = create_sorted_tree_1();
-        let _ = tree.rotate_left(&17);
-        assert_eq!(
-            tree.to_string(),
-            "[15 (5 (3) (12 (10 (6) (Nil)) (14))) (16 (Nil) (20 (18 (17) (Nil)) (31)))]"
-        );
-        let _ = tree.rotate_left(&5);
-        assert_eq!(
-            tree.to_string(),
-            "[15 (12 (5 (3) (10 (6) (Nil))) (14)) (16 (Nil) (20 (18 (17) (Nil)) (31)))]"
-        );
+    fn rotate_left_node() {
+        // // todo:
+        // let mut tree = create_sorted_tree_1();
+        // let _ = tree.rotate_left(&17);
+        // assert_eq!(
+        //     tree.to_string(),
+        //     "[15 (5 (3) (12 (10 (6) (Nil)) (14))) (16 (Nil) (20 (18 (17) (Nil)) (31)))]"
+        // );
+        // let _ = tree.rotate_left(&5);
+        // assert_eq!(
+        //     tree.to_string(),
+        //     "[15 (12 (5 (3) (10 (6) (Nil))) (14)) (16 (Nil) (20 (18 (17) (Nil)) (31)))]"
+        // );
 
-        let e = tree.rotate_left(&1337);
-        assert_eq!(e.unwrap_err(), RotateError::MissingKey);
-        let e = tree.rotate_right(&31);
-        assert_eq!(e.unwrap_err(), RotateError::MissingChild);
+        // let e = tree.rotate_left(&1337);
+        // assert_eq!(e.unwrap_err(), RotateError::MissingKey);
+        // let e = tree.rotate_right(&31);
+        // assert_eq!(e.unwrap_err(), RotateError::MissingChild);
     }
 
     #[test]
-    fn rotate_right() {
-        let mut tree = create_sorted_tree_1();
-        let _ = tree.rotate_right(&5);
-        assert_eq!(
-            tree.to_string(),
-            "[15 (3 (Nil) (5 (Nil) (12 (10 (6) (Nil)) (14)))) (16 (Nil) (20 (17 (Nil) (18)) (31)))]"
-        );
-        let _ = tree.rotate_right(&20);
-        assert_eq!(
-            tree.to_string(),
-            "[15 (3 (Nil) (5 (Nil) (12 (10 (6) (Nil)) (14)))) (16 (Nil) (17 (Nil) (20 (18) (31))))]"
-        );
+    fn rotate_right_node() {
+        // // todo:
+        // let mut tree = create_sorted_tree_1();
+        // let _ = tree.rotate_right(&5);
+        // assert_eq!(
+        //     tree.to_string(),
+        //     "[15 (3 (Nil) (5 (Nil) (12 (10 (6) (Nil)) (14)))) (16 (Nil) (20 (17 (Nil) (18)) (31)))]"
+        // );
+        // let _ = tree.rotate_right(&20);
+        // assert_eq!(
+        //     tree.to_string(),
+        //     "[15 (3 (Nil) (5 (Nil) (12 (10 (6) (Nil)) (14)))) (16 (Nil) (17 (Nil) (20 (18) (31))))]"
+        // );
 
-        let e = tree.rotate_right(&3);
-        assert_eq!(e.unwrap_err(), RotateError::MissingChild);
-        let e = tree.rotate_right(&1337);
-        assert_eq!(e.unwrap_err(), RotateError::MissingKey);
+        // let e = tree.rotate_right(&3);
+        // assert_eq!(e.unwrap_err(), RotateError::MissingChild);
+        // let e = tree.rotate_right(&1337);
+        // assert_eq!(e.unwrap_err(), RotateError::MissingKey);
     }
 
     fn remove() {
