@@ -1,16 +1,17 @@
+use std::cmp::max;
 use std::cmp::Ordering;
 use std::collections::VecDeque;
 use std::fmt;
 use std::fmt::Display;
+use std::mem;
 
 // todo:
-// init height correctly
 // insert + rebalance
 // strategie: erstmal nur einfügen, danach von der wurzel neu suchen und rotieren.
 // sollte in safe rust problemlos möglich sein
 //
 // remove + rebalance
-// strategie: 
+// strategie:
 // so wie bei einfügen, nur wiederholt. dabei geht etwas performance verloren, weil immer neu
 // gesucht wird, anstatt dem parent pointer nach oben zu folgen.
 // alternativ könnte der baum modifiziert werden, indem man temporär die ganzen knoten zerhackt.
@@ -19,10 +20,10 @@ use std::fmt::Display;
 // unsafe rust mit *mut T wäre natürlich die leichtere lösung, aber wo bleibt da all der spaß.
 //
 // kleine funktionen:
-// Node: 
+// Node:
 // is_balanced()
 //
-// AVLTree: 
+// AVLTree:
 // top_unbalanced_node()
 // bottom_unbalanced_node()
 // split_top_to_bottom_unbalanced_node() <- zerhacke baum entlang diesem pfad, also speichere
@@ -39,7 +40,7 @@ type Link<T> = Option<Box<Node<T>>>;
 #[derive(Debug)]
 pub struct Node<T> {
     pub elem: T,
-    pub height: usize,
+    pub height: i32,
     pub left: Link<T>,
     pub right: Link<T>,
 }
@@ -402,14 +403,58 @@ impl<T: Ord> AVLTree<T> {
         }
         None
     }
+    
+    // returns None if there is no unbalanced node or 
+    // if there are unbalanced nodes in both left and right subtree
+    // this method should be called after insertion and
+    // todo(?) maybe deletion
+    fn find_unique_deepest_unbalanced_node_link(&mut self) -> Option<&mut Link<T>> {
+        // not so easy, node might be deep in the tree
+        // need to find the deepest unbalanced node on the path from
+        // the root to the newly inserted node
+        // therefore, this method needs a path as argument
+        // i.e. a number of references, or L/R list o_O
+        // guess I don't get around the list after all,
+        // otherwise I need to search the whole tree in this method!
+        // this would be something like O(n/2) which is bad m_m
+        let mut link = &mut self.root;
+        while 
 
-    pub fn insert(&mut self, elem: T) {
+    }
+
+    // elements are unique, so if the element already exists, return the old one
+    // ok, this is really bad. let's see how to do this with only safe rust:
+    // go down to insert node. split path in single nodes
+    // - insert node at appropriate link.
+    // - go upwards: reconstruct tree and correct height, until unbalanced node is found
+    // - rotate as appropriate
+    // - reconstruct remaining path, heights there are correct, do not modify
+    // o_O
+    pub fn insert(&mut self, elem: T) -> Option<T> {
+        let mut stack: Vec<(&mut i32, &Link<T>)> = Vec::new();
         let mut link: &mut Link<T> = &mut self.root;
         while link.is_some() {
-            if elem < link.as_ref().unwrap().elem {
-                link = &mut link.as_mut().unwrap().left;
-            } else {
-                link = &mut link.as_mut().unwrap().right;
+            match elem.cmp(&link.as_ref().unwrap().elem) {
+                Ordering::Equal => {
+                    // no rebalancing necessary, as the tree's structure does not change!
+                    return Some(mem::replace(&mut link.as_mut().unwrap().elem, elem));
+                }
+                Ordering::Less => {
+                    let (height, left_link, right_link) = link
+                        .as_mut()
+                        .map(|l| (&mut l.height, &mut l.left, &l.right))
+                        .unwrap();
+                    stack.push((height, right_link));
+                    link = left_link;
+                }
+                Ordering::Greater => {
+                    let (height, left_link, right_link) = link
+                        .as_mut()
+                        .map(|l| (&mut l.height, &l.left, &mut l.right))
+                        .unwrap();
+                    stack.push((height, left_link));
+                    link = right_link;
+                }
             }
         }
         *link = Some(Box::new(Node {
@@ -418,7 +463,34 @@ impl<T: Ord> AVLTree<T> {
             left: None,
             right: None,
         }));
-        // todo: rebalance
+        let mut updated_height = 1;
+        let mut needs_balancing = false;
+        while let Some((height, other_node)) = stack.pop() {
+            let other_subtree_height = other_node.as_ref().map(|n| n.height).unwrap_or(0);
+            let new_height = max(other_subtree_height, updated_height);
+            if new_height + 1 != *height {
+                *height = new_height;
+                if (other_subtree_height - updated_height).abs() > 1 {
+                    // if the height did not change, then there is no need to balance
+                    needs_balancing = true;
+                    // we don't save the unbalanced node here, since we need a mutable reference
+                    // to do anything with it, and then the borrow checker won't like that at all
+                    // since we need lots of mutable references on the tree for this to work
+                    // this makes an additional tree traversal necessary
+                    // which is only log(n) so it is sort of ok.
+                }
+            } else {
+                // if the height of a node is still correct,
+                // then the height of all parent nodes is correct, too.
+                break;
+            }
+        }
+        if needs_balancing {
+            let mut deepest_unbalanced_node_link = self.find_unique_deepest_unbalanced_node_link();
+            // // todo: 
+            // 2. rotate as appropriate
+        }
+        None
     }
 
     pub fn is_sorted(&self) -> bool {
@@ -433,6 +505,7 @@ impl<T: Ord> AVLTree<T> {
     }
 
     // empty tree has height 0, tree with only root has height 1
+    // not actually needed for avl tree (?)
     pub fn height(&self) -> i32 {
         // this is a bit ugly. oh well. :)
         match self.root.as_ref() {

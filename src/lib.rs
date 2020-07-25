@@ -13,7 +13,7 @@ mod sort;
 // [x] singly linked list
 // [ ] doubly linked list
 // [x] binary tree
-// [ ] binary search tree
+// [x] binary search tree
 // [ ] AVL tree
 // [ ] red black tree
 // [ ] graph(s)
