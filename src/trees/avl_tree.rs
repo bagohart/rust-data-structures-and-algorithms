@@ -692,33 +692,13 @@ mod tests {
     // remove
     // use super::Node;
 
-    fn create_sorted_tree_1() -> AVLTree<i32> {
+    fn create_avl_tree_1() -> AVLTree<i32> {
+        // todo: was mach ich damit?
         let mut tree = AVLTree::new_empty();
-        tree.insert(15);
-        tree.insert(5);
+        tree.insert(1);
+        tree.insert(2);
         tree.insert(3);
-        tree.insert(12);
-        tree.insert(10);
-        tree.insert(14);
-        tree.insert(6);
-        tree.insert(16);
-        tree.insert(20);
-        tree.insert(17);
-        tree.insert(18);
-        tree.insert(31);
         tree
-        //         15
-        //      /     \
-        //     5       16
-        //   /   \       \
-        //  3     12      20
-        //       /  \     / \
-        //     10    14  17  31
-        //    /           \
-        //   6             18
-        //
-        //  .to_string() representation:
-        // "[15 (5 (3) (12 (10 (6) (Nil)) (14))) (16 (Nil) (20 (17 (Nil) (18)) (31)))]"
     }
 
     #[test]
@@ -764,99 +744,16 @@ mod tests {
     }
 
     fn remove() {
-        let mut tree = create_sorted_tree_1();
-        tree.remove(&3);
-        assert_eq!(
-            tree.to_string(),
-            "[15 (5 (Nil) (12 (10 (6) (Nil)) (14))) (16 (Nil) (20 (17 (Nil) (18)) (31)))]"
-        );
-        tree.remove(&5);
-        assert_eq!(
-            tree.to_string(),
-            "[15 (12 (10 (6) (Nil)) (14)) (16 (Nil) (20 (17 (Nil) (18)) (31)))]"
-        );
-        tree.remove(&12);
-        assert_eq!(
-            tree.to_string(),
-            "[15 (14 (10 (6) (Nil)) (Nil)) (16 (Nil) (20 (17 (Nil) (18)) (31)))]"
-        );
-        let mut tree = create_sorted_tree_1();
-        tree.remove(&5);
-        assert_eq!(
-            tree.to_string(),
-            "[15 (6 (3) (12 (10) (14))) (16 (Nil) (20 (17 (Nil) (18)) (31)))]"
-        );
-    }
-
-    #[test]
-    fn find_succ() {
-        let tree = create_sorted_tree_1();
-        // successor is in right subtree
-        let succ = tree.find_succ(&16);
-        assert_eq!(succ.unwrap(), &17);
-        let succ = tree.find_succ(&5);
-        assert_eq!(succ.unwrap(), &6);
-
-        // successor is a parent node
-        let succ = tree.find_succ(&14);
-        assert_eq!(succ.unwrap(), &15);
-        let succ = tree.find_succ(&18);
-        assert_eq!(succ.unwrap(), &20);
-
-        let succ = tree.find_succ(&31);
-        assert_eq!(succ, None);
-    }
-
-    #[test]
-    fn find_min() {
-        let tree = create_sorted_tree_1();
-        let min = tree.find_min();
-        assert_eq!(min.unwrap(), &3);
-    }
-
-    #[test]
-    fn find() {
-        let tree = create_sorted_tree_1();
-        let root = tree.find(&15);
-        let e10 = tree.find(&10);
-        let e31 = tree.find(&31);
-        let e1337 = tree.find(&1337);
-        assert_eq!(root.unwrap(), &15);
-        assert_eq!(e10.unwrap(), &10);
-        assert_eq!(e31.unwrap(), &31);
-        assert!(e1337.is_none());
-    }
-
-    #[test]
-    fn is_sorted() {
-        let tree = create_sorted_tree_1();
-        assert_eq!(tree.is_sorted(), true);
-    }
-
-    #[test]
-    fn height() {
-        let tree = create_sorted_tree_1();
-        assert_eq!(tree.height(), 5);
+        // todo: 
     }
 
     #[test]
     fn insert() {
         let mut tree = AVLTree::new_empty();
-        tree.insert(15);
-        tree.insert(5);
+        tree.insert(1);
+        tree.insert(2);
         tree.insert(3);
-        tree.insert(12);
-        tree.insert(10);
-        tree.insert(14);
-        tree.insert(6);
-        tree.insert(16);
-        tree.insert(20);
-        tree.insert(17);
-        tree.insert(18);
-        tree.insert(31);
-        assert_eq!(
-            tree.to_string(),
-            "[15 (5 (3) (12 (10 (6) (Nil)) (14))) (16 (Nil) (20 (17 (Nil) (18)) (31)))]"
-        );
+        // todo: das sieht broken aus
+        assert_eq!(tree.to_string(), "lol");
     }
 }
