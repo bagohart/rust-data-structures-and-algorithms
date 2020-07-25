@@ -45,7 +45,7 @@ pub struct Node<T> {
     pub right: Link<T>,
 }
 
-impl<T> Node<T> {
+impl<T: Ord> Node<T> {
     pub fn new(elem: T) -> Node<T> {
         Node {
             elem,
@@ -53,6 +53,13 @@ impl<T> Node<T> {
             left: None,
             right: None,
         }
+    }
+
+    // helper method of rotations
+    pub fn update_height_relying_on_subtrees(&mut self) {
+        let left_height = AVLTree::get_height_from_link(&self.left);
+        let right_height = AVLTree::get_height_from_link(&self.right);
+        self.height = max(left_height, right_height) + 1;
     }
 
     // compares the height of both subtrees, does not recalculate them
@@ -168,7 +175,7 @@ impl<T> Iterator for IntoIterInOrder<T> {
     }
 }
 
-impl<'tree, T> Iterator for IterInOrder<'tree, T> {
+impl<'tree, T:Ord> Iterator for IterInOrder<'tree, T> {
     type Item = &'tree T;
     // cannot use same technique as in IntoIter, since the tree was not modified!
     // alternative solution(?): for every entry save visited flag (or enum)
@@ -219,6 +226,7 @@ pub enum Direction {
 }
 
 impl<T: Ord> AVLTree<T> {
+    // todo: heights !_!
     fn rotate_right_node(parent_link: &mut Link<T>) -> Result<(), RotateError> {
         if parent_link.is_none() {
             return Err(RotateError::MissingRoot);
@@ -462,29 +470,19 @@ impl<T: Ord> AVLTree<T> {
         }
         None
     }
-    // // todo: remove, probably
-    // returns None if there is no unbalanced node or
-    // if there are unbalanced nodes in both left and right subtree
-    // this method should be called after insertion and
-    // todo(?) maybe deletion
-    // fn find_unique_deepest_unbalanced_node_link(&mut self) -> Option<&mut Link<T>> {
-    // not so easy, node might be deep in the tree
-    // need to find the deepest unbalanced node on the path from
-    // the root to the newly inserted node
-    // therefore, this method needs a path as argument
-    // i.e. a number of references, or L/R list o_O
-    // guess I don't get around the list after all,
-    // otherwise I need to search the whole tree in this method!
-    // this would be something like O(n/2) which is bad m_m
-    // let mut link = &mut self.root;
-    // while
-    // }
 
     // helper function for insert(). relies on the height in the immediate subnodes to be correct.
+    // ignores value of height
     fn compute_height_from_subtrees(node: &Box<Node<T>>) -> i32 {
-        let left_height = node.left.as_ref().map(|n| n.height).unwrap_or(0);
-        let right_height = node.right.as_ref().map(|n| n.height).unwrap_or(0);
+        let left_height = AVLTree::get_height_from_link(&node.left);
+        let right_height = AVLTree::get_height_from_link(&node.right);
         max(left_height, right_height) + 1
+    }
+
+    // relies on the height value to be correct
+    // 0 for None
+    fn get_height_from_link(link: &Link<T>) -> i32 {
+        link.as_ref().map(|node| node.height).unwrap_or(0)
     }
 
     // helper function for insert()
@@ -503,26 +501,58 @@ impl<T: Ord> AVLTree<T> {
         self.root = subtree_link;
     }
 
+    // panics if the subtree is already balanced
     fn balance(subtree_link: &mut Link<T>) {
-        // todo: 
+        assert!(subtree_link.is_some());
+        let subtree_root = subtree_link.as_ref().unwrap();
+        let left_height = subtree_root.left.as_ref().map(|n| n.height).unwrap_or(0);
+        let right_height = subtree_root.right.as_ref().map(|n| n.height).unwrap_or(0);
+        assert!(
+            max(left_height, right_height) + 1 == subtree_root.height
+                && !subtree_root.is_balanced()
+        );
+        match left_height.cmp(&right_height) {
+            // left subtree is deeper
+            Ordering::Greater => {
+                if AVLTree::get_height_from_link(&subtree_root.left.as_ref().unwrap().left)
+                    >= AVLTree::get_height_from_link(&subtree_root.left.as_ref().unwrap().right)
+                {
+                    // LL
+                    AVLTree::rotate_right_node(subtree_link);
+                // what now?
+                } else {
+                    // LR
+                    AVLTree::rotate_left_node(&mut subtree_link.as_mut().unwrap().left);
+                    AVLTree::rotate_right_node(subtree_link);
+                }
+            }
+            // right subtree is deeper
+            Ordering::Less => {
+                if AVLTree::get_height_from_link(&subtree_root.right.as_ref().unwrap().right)
+                    >= AVLTree::get_height_from_link(&subtree_root.right.as_ref().unwrap().left)
+                {
+                    // RR
+                    AVLTree::rotate_left_node(subtree_link);
+                // what now?
+                } else {
+                    // RL
+                    AVLTree::rotate_right_node(&mut subtree_link.as_mut().unwrap().right);
+                    AVLTree::rotate_left_node(subtree_link);
+                }
+            }
+            Ordering::Equal => panic!("This panic is unreachable or this is a very sad day"),
+        }
     }
 
     // elements are unique, so if the element already exists, return the old one
-    // ok, this is really bad. let's see how to do this with only safe rust:
-    // go down to insert node. split path in single nodes
-    // - insert node at appropriate link.
-    // - go upwards: reconstruct tree and correct height, until unbalanced node is found
-    // - rotate as appropriate
-    // - reconstruct remaining path, heights there are correct, do not modify
-    // o_O
-    // problem: if comparison fails, tree is completely broken.
-    // I could circumvent that by catching the panic (new thread) and gluing it together again,
-    // or by saving the things in state belonging to tree,
-    // or by doing two passes: on the first try to see if it works.
-    // (if comparison panics *sometimes* then that's bad)
-    // in this case, it seems acceptable if the tree is just lost.
+    //
+    // 100% safe rust with some ceremony:
+    // 1. split path as node is found
+    // 2. insert node at appropriate link.
+    // 3. reconstruct tree and correct height, until unbalanced node is found if any
+    // 4. rebalance and reconstruct remaining path
+    // (if comparison panics, the whole tree is removed)
     pub fn insert(&mut self, elem: T) -> Option<T> {
-        // root treatment is annoying =/
         if self.root.is_none() {
             self.root = Some(Box::new(Node {
                 elem: elem,
