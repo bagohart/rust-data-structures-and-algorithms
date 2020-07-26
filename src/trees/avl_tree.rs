@@ -64,10 +64,11 @@ impl<T: Ord + Debug + Display> Node<T> {
     }
     pub fn assert_correct_heights(&self) {
         assert!(
-            self.height == max(
-                self.get_height_left_subtree(),
-                self.get_height_right_subtree()
-            ) + 1
+            self.height
+                == max(
+                    self.get_height_left_subtree(),
+                    self.get_height_right_subtree()
+                ) + 1
         );
         self.left.as_ref().map(|n| n.assert_correct_heights());
         self.right.as_ref().map(|n| n.assert_correct_heights());
@@ -252,6 +253,8 @@ pub enum Direction {
     Right,
 }
 
+type PathStack = Vec<(Box<Node<T>>, Direction)>;
+
 impl<T: Ord + Debug + Display> AVLTree<T> {
     // todo: recursive things. only for sanity tests.
     fn assert_balanced(&self) {
@@ -359,7 +362,52 @@ impl<T: Ord + Debug + Display> AVLTree<T> {
     }
 
     // todo: rebalance
-    pub fn remove(&mut self, elem: &T) {
+    // we have to keep heights correct and keep track of successors. this is much harder than what we did before.
+    // 1: find node, split path. if not found, reassemble path and quit
+    // 2: distinguish 3 cases:
+    // 2a leaf: remove, propagate heights back up and rebalance at each step if necessary
+    // 2b half-leaf: as 2a
+    // 2c branching node:
+    //      - find successor (exists!) in right subtree, split path, take out successor
+    //      - propagate heights back up and rebalance right subtree at each step if necessary
+    //      - put successor node back in and update height. rebalance if necessary.
+    //      - propagate heights back up and rebalance at each step if necessary
+    pub fn delete(&mut self, elem: &T) -> Option<T> {
+        let (path_stack, subtree_link) = self.find_and_split_path(elem);
+        // error and reassemble tree or continue
+        None
+    }
+
+    fn find_and_split_path(&mut self, elem: &T) -> (PathStack, Link<T>) {
+        // todo: continue here. test this, actually.
+        // maybe refactor the insert method, too.
+        if self.root.is_none() {
+            return (Vec::new(), self.root.take());
+        }
+        let height = self.root.as_ref().unwrap().height as usize;
+        let mut path_stack: PathStack = Vec::with_capacity(height);
+        let mut subtree_link: Link<T> = self.root.take();
+        while subtree_link.is_some() {
+            match elem.cmp(&subtree_link.as_ref().unwrap().elem) {
+                Ordering::Equal => {
+                    return (path_stack, subtree_link);
+                }
+                Ordering::Less => {
+                    let next_link = subtree_link.as_mut().unwrap().left.take();
+                    path_stack.push((subtree_link.unwrap(), Direction::Left));
+                    subtree_link = next_link;
+                }
+                Ordering::Greater => {
+                    let next_link = subtree_link.as_mut().unwrap().right.take();
+                    path_stack.push((subtree_link.unwrap(), Direction::Right));
+                    subtree_link = next_link;
+                }
+            }
+        }
+        (path_stack, subtree_link)
+    }
+
+    pub fn remove_old(&mut self, elem: &T) {
         // By using links instead of nodes, we don't have to treat the root as a special case
         let node_link = self.find_mut_node_link(elem);
         // this construction is inelegant, but if let is annoying here, too =/
@@ -551,7 +599,7 @@ impl<T: Ord + Debug + Display> AVLTree<T> {
 
     // elements are unique, so if the element already exists, return the old one
     //
-    // 100% safe rust with some ceremony:
+    // 100% safe rust with some tricks:
     // 1. split path as node is found
     // 2. insert node at appropriate link.
     // 3. reconstruct tree and correct height, until unbalanced node is found if any
@@ -760,7 +808,7 @@ mod tests {
     }
 
     fn remove() {
-        // todo: 
+        // todo:
     }
 
     #[test]
@@ -768,43 +816,63 @@ mod tests {
         // RR
         let mut tree = AVLTree::new_empty();
         tree.insert(1);
+        tree.assert_ok();
         tree.insert(2);
+        tree.assert_ok();
         tree.insert(3);
+        tree.assert_ok();
         // todo: mehr tests.
         assert_eq!(tree.to_string(), "[2 (1) (3)]");
         tree.insert(4);
+        tree.assert_ok();
         tree.insert(5);
+        tree.assert_ok();
         assert_eq!(tree.to_string(), "[2 (1) (4 (3) (5))]");
 
         // RL
         let mut tree = AVLTree::new_empty();
         tree.insert(1);
+        tree.assert_ok();
         tree.insert(20);
+        tree.assert_ok();
         assert_eq!(tree.to_string(), "[1 (Nil) (20)]");
         tree.insert(10);
+        tree.assert_ok();
         assert_eq!(tree.to_string(), "[10 (1) (20)]");
         tree.insert(30);
+        tree.assert_ok();
         tree.insert(25);
+        tree.assert_ok();
         assert_eq!(tree.to_string(), "[10 (1) (25 (20) (30))]");
 
         // LL
         let mut tree = AVLTree::new_empty();
         tree.insert(30);
+        tree.assert_ok();
         tree.insert(20);
+        tree.assert_ok();
         tree.insert(10);
+        tree.assert_ok();
         assert_eq!(tree.to_string(), "[20 (10) (30)]");
         tree.insert(8);
+        tree.assert_ok();
         tree.insert(5);
+        tree.assert_ok();
         assert_eq!(tree.to_string(), "[20 (8 (5) (10)) (30)]");
 
         // LR
         let mut tree = AVLTree::new_empty();
         tree.insert(30);
+        tree.assert_ok();
         tree.insert(20);
+        tree.assert_ok();
         tree.insert(25);
+        tree.assert_ok();
         assert_eq!(tree.to_string(), "[25 (20) (30)]");
         tree.insert(10);
+        tree.assert_ok();
         tree.insert(15);
+        tree.assert_ok();
         assert_eq!(tree.to_string(), "[25 (15 (10) (20)) (30)]");
     }
 }
