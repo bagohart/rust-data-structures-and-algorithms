@@ -2,6 +2,7 @@ use std::cmp::max;
 use std::cmp::Ordering;
 use std::collections::VecDeque;
 use std::fmt;
+use std::fmt::Debug;
 use std::fmt::Display;
 use std::mem;
 
@@ -49,7 +50,7 @@ pub struct Node<T> {
     pub right: Link<T>,
 }
 
-impl<T: Ord> Node<T> {
+impl<T: Ord + Debug + Display> Node<T> {
     pub fn assert_balanced(&self) {
         assert!((self.get_height_left_subtree() - self.get_height_right_subtree()).abs() <= 1);
         self.left.as_ref().map(|n| n.assert_balanced());
@@ -101,7 +102,7 @@ impl<T: Ord> Node<T> {
     pub fn is_balanced(&self) -> bool {
         let left_height = self.left.as_ref().map(|n| n.height).unwrap_or(0);
         let right_height = self.right.as_ref().map(|n| n.height).unwrap_or(0);
-        (left_height - right_height).abs() > 1
+        (left_height - right_height).abs() <= 1
     }
 
     pub fn has_no_children(&self) -> bool {
@@ -159,7 +160,7 @@ pub struct IterMutInOrder<'tree, T> {
     stack: Vec<(&'tree mut T, Option<&'tree mut Box<Node<T>>>)>,
 }
 
-impl<T: Ord> Drop for AVLTree<T> {
+impl<T: Ord + Debug> Drop for AVLTree<T> {
     fn drop(&mut self) {
         let mut queue = VecDeque::new();
         self.root.take().map(|r| queue.push_back(r));
@@ -170,7 +171,7 @@ impl<T: Ord> Drop for AVLTree<T> {
     }
 }
 
-impl<T: Ord> AVLTree<T> {
+impl<T: Ord + Debug + Display> AVLTree<T> {
     pub fn into_iter_in_order(mut self) -> IntoIterInOrder<T> {
         IntoIterInOrder {
             stack: self.root.take().into_iter().collect(),
@@ -209,7 +210,7 @@ impl<T> Iterator for IntoIterInOrder<T> {
     }
 }
 
-impl<'tree, T: Ord> Iterator for IterInOrder<'tree, T> {
+impl<'tree, T: Ord + Debug + Display> Iterator for IterInOrder<'tree, T> {
     type Item = &'tree T;
     // cannot use same technique as in IntoIter, since the tree was not modified!
     // alternative solution(?): for every entry save visited flag (or enum)
@@ -241,7 +242,7 @@ impl<'tree, T> Iterator for IterMutInOrder<'tree, T> {
 }
 
 #[derive(Debug)]
-pub struct AVLTree<T: Ord> {
+pub struct AVLTree<T: Ord + Debug> {
     pub root: Link<T>,
 }
 
@@ -251,7 +252,7 @@ pub enum Direction {
     Right,
 }
 
-impl<T: Ord> AVLTree<T> {
+impl<T: Ord + Debug + Display> AVLTree<T> {
     // todo: recursive things. only for sanity tests.
     fn assert_balanced(&self) {
         self.root.as_ref().map(|root| root.assert_balanced());
@@ -518,10 +519,12 @@ impl<T: Ord> AVLTree<T> {
                     >= AVLTree::get_height_from_link(&subtree_root.left.as_ref().unwrap().right)
                 {
                     // LL
+                    println!("LL");
                     AVLTree::rotate_right_node(subtree_link);
                 // what now?
                 } else {
                     // LR
+                    println!("LR");
                     AVLTree::rotate_left_node(&mut subtree_link.as_mut().unwrap().left);
                     AVLTree::rotate_right_node(subtree_link);
                 }
@@ -532,10 +535,12 @@ impl<T: Ord> AVLTree<T> {
                     >= AVLTree::get_height_from_link(&subtree_root.right.as_ref().unwrap().left)
                 {
                     // RR
+                    println!("RR");
                     AVLTree::rotate_left_node(subtree_link);
                 // what now?
                 } else {
                     // RL
+                    println!("RL");
                     AVLTree::rotate_right_node(&mut subtree_link.as_mut().unwrap().right);
                     AVLTree::rotate_left_node(subtree_link);
                 }
@@ -614,6 +619,7 @@ impl<T: Ord> AVLTree<T> {
                 if new_subtree.is_balanced() {
                     continue;
                 } else {
+                    println!("found unbalanced subtree: {}", new_subtree.to_string());
                     let mut new_subtree_link = Some(new_subtree);
                     AVLTree::balance(&mut new_subtree_link);
                     // after balancing, the subtree has the same height as before
@@ -676,7 +682,7 @@ impl<T: Ord> AVLTree<T> {
     }
 }
 
-impl<T: Ord + Display> Display for AVLTree<T> {
+impl<T: Ord + Display + Debug> Display for AVLTree<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let root = match self.root.as_ref() {
             None => String::from("Nil"),
@@ -685,6 +691,16 @@ impl<T: Ord + Display> Display for AVLTree<T> {
         write!(f, "[{}]", root)
     }
 }
+
+// impl<T: Ord + Display + Debug> Display for Node<T> {
+//     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+//         let left = self.left.to_string();
+//         let right = self.right.to_string();
+//         let value = self.elem.to_string();
+
+//         write!(f, "({} {} {})", value, left, right)
+//     }
+// }
 
 #[cfg(test)]
 mod tests {
@@ -749,11 +765,46 @@ mod tests {
 
     #[test]
     fn insert() {
+        // RR
         let mut tree = AVLTree::new_empty();
         tree.insert(1);
         tree.insert(2);
         tree.insert(3);
-        // todo: das sieht broken aus
-        assert_eq!(tree.to_string(), "lol");
+        // todo: mehr tests.
+        assert_eq!(tree.to_string(), "[2 (1) (3)]");
+        tree.insert(4);
+        tree.insert(5);
+        assert_eq!(tree.to_string(), "[2 (1) (4 (3) (5))]");
+
+        // RL
+        let mut tree = AVLTree::new_empty();
+        tree.insert(1);
+        tree.insert(20);
+        assert_eq!(tree.to_string(), "[1 (Nil) (20)]");
+        tree.insert(10);
+        assert_eq!(tree.to_string(), "[10 (1) (20)]");
+        tree.insert(30);
+        tree.insert(25);
+        assert_eq!(tree.to_string(), "[10 (1) (25 (20) (30))]");
+
+        // LL
+        let mut tree = AVLTree::new_empty();
+        tree.insert(30);
+        tree.insert(20);
+        tree.insert(10);
+        assert_eq!(tree.to_string(), "[20 (10) (30)]");
+        tree.insert(8);
+        tree.insert(5);
+        assert_eq!(tree.to_string(), "[20 (8 (5) (10)) (30)]");
+
+        // LR
+        let mut tree = AVLTree::new_empty();
+        tree.insert(30);
+        tree.insert(20);
+        tree.insert(25);
+        assert_eq!(tree.to_string(), "[25 (20) (30)]");
+        tree.insert(10);
+        tree.insert(15);
+        assert_eq!(tree.to_string(), "[25 (15 (10) (20)) (30)]");
     }
 }
