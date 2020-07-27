@@ -665,6 +665,11 @@ impl<T: Ord + Debug + Display> AVLTree<T> {
         }
 
         let (mut stack, subtree) = AVLTree::find_value_and_split_path(&elem, self.root.take());
+        // todo: match
+        if subtree.is_some() {
+            self.root = AVLTree::rebuild_original_tree(subtree, stack);
+            return Some(elem);
+        }
         let mut new_subtree: Box<Node<T>> = Box::new(Node {
             elem: elem,
             height: 1,
@@ -840,6 +845,21 @@ mod tests {
 
     #[test]
     fn insert() {
+        let mut tree = AVLTree::new_empty();
+        tree.insert(10);
+        tree.insert(5);
+        tree.insert(20);
+        tree.insert(17);
+        tree.insert(3);
+        tree.insert(14);
+        tree.assert_ok();
+        let tree_before = tree.to_string();
+        let o = tree.insert(14);
+        let tree_after = tree.to_string();
+        tree.assert_ok();
+        assert_eq! (o, Some(14));
+        assert_eq!(tree_before, tree_after);
+
         // RR
         let mut tree = AVLTree::new_empty();
         tree.insert(1);
