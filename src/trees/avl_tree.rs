@@ -126,6 +126,10 @@ impl<T: Ord + Debug + Display> Node<T> {
         (left_height - right_height).abs() <= 1
     }
 
+    pub fn is_unbalanced(&self) -> bool {
+        !self.is_balanced()
+    }
+
     pub fn node_type(&self) -> NodeType {
         let left = self.left.as_ref().map(|_| 1).unwrap_or(0);
         let right = self.right.as_ref().map(|_| 1).unwrap_or(0);
@@ -441,7 +445,11 @@ impl<T: Ord + Debug + Display> AVLTree<T> {
     }
 
     // panics if a node would be overwritte, i.e. dropped
-    fn append_to_parent_a_subtree(parent: &mut Box<Node<T>>, node: Box<Node<T>>, direction: Direction) {
+    fn append_to_parent_a_node(
+        parent: &mut Box<Node<T>>,
+        node: Box<Node<T>>,
+        direction: Direction,
+    ) {
         match direction {
             Direction::Left => {
                 assert!(parent.left.is_none());
@@ -454,7 +462,63 @@ impl<T: Ord + Debug + Display> AVLTree<T> {
         };
     }
 
-    fn rebuild_and_balance_at_each_step(parent: Subtree<T>, path_stack: PathStack<T>) -> Subtree<T> {
+    fn append_to_parent_a_subtree(
+        parent: &mut Box<Node<T>>,
+        subtree: Subtree<T>,
+        direction: Direction,
+    ) {
+        match direction {
+            Direction::Left => {
+                assert!(parent.left.is_none());
+                parent.left = subtree
+            }
+            Direction::Right => {
+                assert!(parent.right.is_none());
+                parent.right = subtree
+            }
+        };
+    }
+
+    // fn rebuild_tree<F>(
+    //     mut subtree: Link<T>,
+    //     mut path_stack: PathStack<T>,
+    //     combine_func: &F,
+    // ) -> (Subtree<T>, PathStack<T>)
+    // where
+    //     F: Fn(
+    //         /* subtree: */ Link<T>,
+    //         /* parent: */ Box<Node<T>>,
+    //         Direction,
+    //     ) -> (Link<T>, /* continue */ bool),
+    fn rebuild_and_balance_at_each_step(
+        subtree: Subtree<T>,
+        path_stack: PathStack<T>,
+    ) -> Subtree<T> {
+        let (subtree, path_stack) = AVLTree::rebuild_tree(
+            subtree,
+            path_stack,
+            &|subtree, mut parent: Box<Node<T>>, direction| {
+                let parent_old_height = parent.height;
+                AVLTree::append_to_parent_a_subtree(&mut parent, subtree, direction);
+                let parent_new_height = AVLTree::compute_height_from_subtrees(&parent);
+                if parent_new_height == parent_old_height {
+                    // no changes in ancestors necessary,
+                    // so stop and rebuild the rest without checks and height updates
+                    (Some(parent), false)
+                } else {
+                    parent.height = parent_new_height;
+                    // todo: balance here immediately if necessary
+                    if parent.is_unbalanced() {
+                        // todo: are the heights correct at this point?
+                        let mut parent_link = Some(parent);
+                        AVLTree::balance(&mut parent_link);
+                        parent = parent_link.unwrap();
+                    }
+                    (Some(parent), false)
+                }
+            },
+        );
+        // todo: test this. it should actually be complete maybe ?_?
         unimplemented!()
     }
 
@@ -497,9 +561,10 @@ impl<T: Ord + Debug + Display> AVLTree<T> {
                         self.root = Some(only_child);
                     }
                     Some((mut parent, direction)) => {
-                        AVLTree::append_to_parent_a_subtree(&mut parent, only_child, direction);
+                        AVLTree::append_to_parent_a_node(&mut parent, only_child, direction);
                         parent.update_height_relying_on_subtrees();
-                        self.root = AVLTree::rebuild_and_balance_at_each_step(Some(parent), path_stack);
+                        self.root =
+                            AVLTree::rebuild_and_balance_at_each_step(Some(parent), path_stack);
                     }
                 };
                 value
@@ -751,10 +816,12 @@ impl<T: Ord + Debug + Display> AVLTree<T> {
                     stack,
                     &|subtree, mut parent: Box<Node<T>>, direction| {
                         let parent_old_height = parent.height;
-                        match direction {
-                            Direction::Left => parent.left = subtree,
-                            Direction::Right => parent.right = subtree,
-                        };
+                        // todo: extract
+                        AVLTree::append_to_parent_a_subtree(&mut parent, subtree, direction);
+                        // match direction {
+                        //     Direction::Left => parent.left = subtree,
+                        //     Direction::Right => parent.right = subtree,
+                        // };
                         let parent_new_height = AVLTree::compute_height_from_subtrees(&parent);
                         if parent_new_height == parent_old_height {
                             // no changes in ancestors necessary,
@@ -762,6 +829,7 @@ impl<T: Ord + Debug + Display> AVLTree<T> {
                             (Some(parent), false)
                         } else {
                             parent.height = parent_new_height;
+                            // todo: balance here immediately maybe?
                             let continue_ = parent.is_balanced();
                             (Some(parent), continue_)
                         }
