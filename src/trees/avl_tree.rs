@@ -133,6 +133,7 @@ impl<T: Ord + Debug + Display> Node<T> {
             0 => NodeType::Leaf,
             1 => NodeType::HalfLeaf,
             2 => NodeType::Inner,
+            _ => panic!("node with wrong number of children"),
         }
     }
 
@@ -145,11 +146,15 @@ impl<T: Ord + Debug + Display> Node<T> {
     }
 
     pub fn take_only_child_link(&mut self) -> Link<T> {
+        Some(self.take_only_child())
+    }
+
+    pub fn take_only_child(&mut self) -> Box<Node<T>> {
         assert!(self.has_exactly_one_child());
         if self.left.is_some() {
-            self.left.take()
+            self.left.take().unwrap()
         } else {
-            self.right.take()
+            self.right.take().unwrap()
         }
     }
 
@@ -436,7 +441,7 @@ impl<T: Ord + Debug + Display> AVLTree<T> {
     }
 
     // panics if a node would be overwritte, i.e. dropped
-    fn append_to_parent_a_subtree(parent: Box<Node<T>>, node: Box<Node<T>>, direction: Direction) {
+    fn append_to_parent_a_subtree(parent: &mut Box<Node<T>>, node: Box<Node<T>>, direction: Direction) {
         match direction {
             Direction::Left => {
                 assert!(parent.left.is_none());
@@ -448,6 +453,11 @@ impl<T: Ord + Debug + Display> AVLTree<T> {
             }
         };
     }
+
+    fn rebuild_and_balance_at_each_step(parent: Subtree<T>, path_stack: PathStack<T>) -> Subtree<T> {
+        unimplemented!()
+    }
+
     // todo: rebalance
     // we have to keep heights correct and keep track of successors. this is much harder than what we did before.
     // 1: find node, split path. if not found, reassemble path and quit
@@ -470,7 +480,7 @@ impl<T: Ord + Debug + Display> AVLTree<T> {
         }
     }
 
-    fn delete_found_node(&mut self, path_stack: PathStack<T>, node: Box<Node<T>>) -> T {
+    fn delete_found_node(&mut self, mut path_stack: PathStack<T>, mut node: Box<Node<T>>) -> T {
         match node.node_type() {
             NodeType::Leaf => {
                 let value = node.elem;
@@ -478,22 +488,23 @@ impl<T: Ord + Debug + Display> AVLTree<T> {
                 value
             }
             NodeType::HalfLeaf => {
+                let only_child = node.take_only_child();
                 let value = node.elem;
                 let parent = path_stack.pop();
                 match parent {
                     None => {
                         // todo: rebalance necessary ?_?
-                        self.root = node.take_only_child_link();
+                        self.root = Some(only_child);
                     }
-                    Some((parent, direction)) => {
-                        AVLTree::append_to_parent_a_subtree(parent, node, direction);
+                    Some((mut parent, direction)) => {
+                        AVLTree::append_to_parent_a_subtree(&mut parent, only_child, direction);
                         parent.update_height_relying_on_subtrees();
-                        self.root = AVLTree::rebuild_and_balance_at_each_step(None, path_stack);
+                        self.root = AVLTree::rebuild_and_balance_at_each_step(Some(parent), path_stack);
                     }
                 };
                 value
             }
-            NodeType::Inner => None,
+            NodeType::Inner => unimplemented!(),
         }
     }
 
