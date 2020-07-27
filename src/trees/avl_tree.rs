@@ -4,7 +4,7 @@ use std::collections::VecDeque;
 use std::fmt;
 use std::fmt::Debug;
 use std::fmt::Display;
-use std::mem;
+// use std::mem;
 
 // todo neu:
 // split generisch
@@ -375,13 +375,6 @@ impl<T: Ord + Debug + Display> AVLTree<T> {
         None
     }
 
-    fn find_link_for_new_value(root: Link<T>, value: &T) -> (PathStack<T>, Link<T>) {
-        AVLTree::find_subtree_and_split_path(root, &|node: &Box<Node<T>>| match node.left {
-            Some(_) => SplitInstruction::Left,
-            None => SplitInstruction::Stop,
-        })
-    }
-
     fn find_leftmost_child_and_split_path(root: Link<T>) -> (PathStack<T>, Link<T>) {
         AVLTree::find_subtree_and_split_path(root, &|node: &Box<Node<T>>| match node.left {
             Some(_) => SplitInstruction::Left,
@@ -436,12 +429,12 @@ impl<T: Ord + Debug + Display> AVLTree<T> {
     //      - propagate heights back up and rebalance right subtree at each step if necessary
     //      - put successor node back in and update height. rebalance if necessary.
     //      - propagate heights back up and rebalance at each step if necessary
-    pub fn delete(&mut self, elem: &T) -> Option<T> {
+    // pub fn delete(&mut self, elem: &T) -> Option<T> {
         // // todo:
         // let (path_stack, subtree_link) = self.find_and_split_path(elem);
         // error and reassemble tree or continue
-        None
-    }
+        // None
+    // }
 
     pub fn remove_old(&mut self, elem: &T) {
         // By using links instead of nodes, we don't have to treat the root as a special case
@@ -577,24 +570,33 @@ impl<T: Ord + Debug + Display> AVLTree<T> {
         combine_func: &F,
     ) -> (Subtree<T>, PathStack<T>)
     where
-        F: Fn(/* subtree: */ Link<T>, /* parent: */ Box<Node<T>>, Direction) -> Link<T>,
+        F: Fn(
+            /* subtree: */ Link<T>,
+            /* parent: */ Box<Node<T>>,
+            Direction,
+        ) -> (Link<T>, /* continue */ bool),
     {
-        while let Some((parent_node, direction)) = path_stack.pop() {
-            subtree = combine_func(subtree, parent_node, direction);
+        let mut continue_ = true;
+        while continue_ && !path_stack.is_empty() { // no while let syntax for this at this point
+            let (parent_node, direction) = path_stack.pop().unwrap();
+            let temp = combine_func(subtree, parent_node, direction);
+            subtree = temp.0;
+            continue_ = temp.1;
         }
         (subtree, path_stack)
     }
 
     // // todo: remove
     // type PathStack<T> = Vec<(Box<Node<T>>, Direction)>;
-    fn rebuild_original_tree(mut subtree: Link<T>, path_stack: PathStack<T>) -> Link<T> {
+    fn rebuild_original_tree(subtree: Link<T>, path_stack: PathStack<T>) -> Link<T> {
         AVLTree::rebuild_tree(subtree, path_stack, &|subtree, mut parent, direction| {
             match direction {
                 Direction::Left => parent.left = subtree,
                 Direction::Right => parent.right = subtree,
             }
-            Some(parent)
-        }).0
+            (Some(parent), true)
+        })
+        .0
     }
 
     // panics if the subtree is already balanced
@@ -690,7 +692,7 @@ impl<T: Ord + Debug + Display> AVLTree<T> {
             let old_height = new_subtree.height;
             let new_height = AVLTree::compute_height_from_subtrees(&new_subtree);
             if new_height == old_height {
-                    self.root = AVLTree::rebuild_original_tree(Some(new_subtree), stack);
+                self.root = AVLTree::rebuild_original_tree(Some(new_subtree), stack);
                 return None;
             } else {
                 assert!(new_height > old_height);
@@ -857,7 +859,7 @@ mod tests {
         let o = tree.insert(14);
         let tree_after = tree.to_string();
         tree.assert_ok();
-        assert_eq! (o, Some(14));
+        assert_eq!(o, Some(14));
         assert_eq!(tree_before, tree_after);
 
         // RR
