@@ -57,6 +57,12 @@ enum SplitInstruction {
     Stop,
 }
 
+enum NodeType {
+    Leaf,
+    HalfLeaf,
+    Inner,
+}
+
 // returns the height as indicated by Node value 'height' or 0 if the subtree is empty
 fn subtree_height<T>(root: &Link<T>) -> usize {
     root.as_ref()
@@ -118,6 +124,16 @@ impl<T: Ord + Debug + Display> Node<T> {
         let left_height = self.left.as_ref().map(|n| n.height).unwrap_or(0);
         let right_height = self.right.as_ref().map(|n| n.height).unwrap_or(0);
         (left_height - right_height).abs() <= 1
+    }
+
+    pub fn node_type(&self) -> NodeType {
+        let left = self.left.as_ref().map(|_| 1).unwrap_or(0);
+        let right = self.right.as_ref().map(|_| 1).unwrap_or(0);
+        match left + right {
+            0 => NodeType::Leaf,
+            1 => NodeType::HalfLeaf,
+            2 => NodeType::Inner,
+        }
     }
 
     pub fn has_no_children(&self) -> bool {
@@ -418,6 +434,20 @@ impl<T: Ord + Debug + Display> AVLTree<T> {
         }
         (path_stack, subtree_link)
     }
+
+    // panics if a node would be overwritte, i.e. dropped
+    fn append_to_parent_a_subtree(parent: Box<Node<T>>, node: Box<Node<T>>, direction: Direction) {
+        match direction {
+            Direction::Left => {
+                assert!(parent.left.is_none());
+                parent.left = Some(node)
+            }
+            Direction::Right => {
+                assert!(parent.right.is_none());
+                parent.right = Some(node)
+            }
+        };
+    }
     // todo: rebalance
     // we have to keep heights correct and keep track of successors. this is much harder than what we did before.
     // 1: find node, split path. if not found, reassemble path and quit
@@ -429,12 +459,43 @@ impl<T: Ord + Debug + Display> AVLTree<T> {
     //      - propagate heights back up and rebalance right subtree at each step if necessary
     //      - put successor node back in and update height. rebalance if necessary.
     //      - propagate heights back up and rebalance at each step if necessary
-    // pub fn delete(&mut self, elem: &T) -> Option<T> {
-    // // todo:
-    // let (path_stack, subtree_link) = self.find_and_split_path(elem);
-    // error and reassemble tree or continue
-    // None
-    // }
+    pub fn delete(&mut self, elem: &T) -> Option<T> {
+        let (path_stack, subtree) = AVLTree::find_value_and_split_path(elem, self.root.take());
+        match subtree {
+            None => {
+                self.root = AVLTree::rebuild_original_tree(None, path_stack);
+                None
+            }
+            Some(node) => Some(self.delete_found_node(path_stack, node)),
+        }
+    }
+
+    fn delete_found_node(&mut self, path_stack: PathStack<T>, node: Box<Node<T>>) -> T {
+        match node.node_type() {
+            NodeType::Leaf => {
+                let value = node.elem;
+                self.root = AVLTree::rebuild_and_balance_at_each_step(None, path_stack);
+                value
+            }
+            NodeType::HalfLeaf => {
+                let value = node.elem;
+                let parent = path_stack.pop();
+                match parent {
+                    None => {
+                        // todo: rebalance necessary ?_?
+                        self.root = node.take_only_child_link();
+                    }
+                    Some((parent, direction)) => {
+                        AVLTree::append_to_parent_a_subtree(parent, node, direction);
+                        parent.update_height_relying_on_subtrees();
+                        self.root = AVLTree::rebuild_and_balance_at_each_step(None, path_stack);
+                    }
+                };
+                value
+            }
+            NodeType::Inner => None,
+        }
+    }
 
     pub fn remove_old(&mut self, elem: &T) {
         // By using links instead of nodes, we don't have to treat the root as a special case
