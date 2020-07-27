@@ -7,8 +7,8 @@ use std::fmt::Display;
 use std::mem;
 
 // todo neu:
-// comprehensive integrity checks
-// remove more useless stuff
+// split generisch
+// rebuild generisch
 
 // todo alt:
 // insert + rebalance
@@ -48,6 +48,19 @@ pub struct Node<T> {
     pub height: i32,
     pub left: Link<T>,
     pub right: Link<T>,
+}
+
+enum SplitInstruction {
+    Left,
+    Right,
+    Stop,
+}
+
+// returns the height as indicated by Node value 'height' or 0 if the subtree is empty
+fn subtree_height<T>(root: &Link<T>) -> usize {
+    root.as_ref()
+        .map(|root| root.height as usize)
+        .unwrap_or(0 as usize)
 }
 
 impl<T: Ord + Debug + Display> Node<T> {
@@ -253,7 +266,7 @@ pub enum Direction {
     Right,
 }
 
-type PathStack = Vec<(Box<Node<T>>, Direction)>;
+type PathStack<T> = Vec<(Box<Node<T>>, Direction)>;
 
 impl<T: Ord + Debug + Display> AVLTree<T> {
     // todo: recursive things. only for sanity tests.
@@ -361,6 +374,51 @@ impl<T: Ord + Debug + Display> AVLTree<T> {
         None
     }
 
+    fn find_leftmost_child_and_split_path(root: Link<T>) -> (PathStack<T>, Link<T>) {
+        AVLTree::find_subtree_and_split_path(root, &|node: &Box<Node<T>>| {
+            match node.left {
+                Some(_) => SplitInstruction::Left,
+                None => SplitInstruction::Stop,
+            }
+        })
+    }
+
+    fn find_value_and_split_path(value: &T, root: Link<T>) -> (PathStack<T>, Link<T>) {
+        AVLTree::find_subtree_and_split_path(root, &|node: &Box<Node<T>>| {
+            match value.cmp(&node.elem) {
+                Ordering::Equal => SplitInstruction::Stop,
+                Ordering::Less => SplitInstruction::Left,
+                Ordering::Greater => SplitInstruction::Right,
+            }
+        })
+    }
+
+    fn find_subtree_and_split_path<F>(root: Link<T>, split_function: &F) -> (PathStack<T>, Link<T>)
+    where
+        F: Fn(&Box<Node<T>>) -> SplitInstruction,
+    {
+        let mut path_stack: PathStack<T> = Vec::with_capacity(subtree_height(&root));
+        let mut subtree_link = root;
+        while let Some(mut node) = subtree_link {
+            match split_function(&node) {
+                SplitInstruction::Left => {
+                    let next_link = node.left.take();
+                    path_stack.push((node, Direction::Left));
+                    subtree_link = next_link;
+                }
+                SplitInstruction::Right => {
+                    let next_link = node.right.take();
+                    path_stack.push((node, Direction::Right));
+                    subtree_link = next_link;
+                }
+                SplitInstruction::Stop => {
+                    subtree_link = Some(node);
+                    break;
+                }
+            }
+        }
+        (path_stack, subtree_link)
+    }
     // todo: rebalance
     // we have to keep heights correct and keep track of successors. this is much harder than what we did before.
     // 1: find node, split path. if not found, reassemble path and quit
@@ -373,38 +431,10 @@ impl<T: Ord + Debug + Display> AVLTree<T> {
     //      - put successor node back in and update height. rebalance if necessary.
     //      - propagate heights back up and rebalance at each step if necessary
     pub fn delete(&mut self, elem: &T) -> Option<T> {
-        let (path_stack, subtree_link) = self.find_and_split_path(elem);
+        // // todo:
+        // let (path_stack, subtree_link) = self.find_and_split_path(elem);
         // error and reassemble tree or continue
         None
-    }
-
-    fn find_and_split_path(&mut self, elem: &T) -> (PathStack, Link<T>) {
-        // todo: continue here. test this, actually.
-        // maybe refactor the insert method, too.
-        if self.root.is_none() {
-            return (Vec::new(), self.root.take());
-        }
-        let height = self.root.as_ref().unwrap().height as usize;
-        let mut path_stack: PathStack = Vec::with_capacity(height);
-        let mut subtree_link: Link<T> = self.root.take();
-        while subtree_link.is_some() {
-            match elem.cmp(&subtree_link.as_ref().unwrap().elem) {
-                Ordering::Equal => {
-                    return (path_stack, subtree_link);
-                }
-                Ordering::Less => {
-                    let next_link = subtree_link.as_mut().unwrap().left.take();
-                    path_stack.push((subtree_link.unwrap(), Direction::Left));
-                    subtree_link = next_link;
-                }
-                Ordering::Greater => {
-                    let next_link = subtree_link.as_mut().unwrap().right.take();
-                    path_stack.push((subtree_link.unwrap(), Direction::Right));
-                    subtree_link = next_link;
-                }
-            }
-        }
-        (path_stack, subtree_link)
     }
 
     pub fn remove_old(&mut self, elem: &T) {
