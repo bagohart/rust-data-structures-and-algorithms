@@ -590,22 +590,6 @@ impl<T: Ord + Debug + Display> AVLTree<T> {
         }).0
     }
 
-    // helper function for insert()
-    fn rebuild_tree_without_changes_to_structure(
-        &mut self,
-        mut subtree_link: Link<T>,
-        mut stack: Vec<(Box<Node<T>>, Direction)>,
-    ) {
-        while let Some((mut parent_node, direction)) = stack.pop() {
-            match direction {
-                Direction::Left => parent_node.left = subtree_link,
-                Direction::Right => parent_node.right = subtree_link,
-            }
-            subtree_link = Some(parent_node);
-        }
-        self.root = subtree_link;
-    }
-
     // panics if the subtree is already balanced
     fn balance(subtree_link: &mut Link<T>) {
         assert!(subtree_link.is_some());
@@ -680,7 +664,7 @@ impl<T: Ord + Debug + Display> AVLTree<T> {
             match elem.cmp(&subtree_link.as_ref().unwrap().elem) {
                 Ordering::Equal => {
                     let old_value = mem::replace(&mut subtree_link.as_mut().unwrap().elem, elem);
-                    self.rebuild_tree_without_changes_to_structure(subtree_link, stack);
+                    self.root = AVLTree::rebuild_original_tree(subtree_link, stack);
                     return Some(old_value);
                 }
                 Ordering::Less => {
@@ -715,7 +699,7 @@ impl<T: Ord + Debug + Display> AVLTree<T> {
             let old_height = new_subtree.height;
             let new_height = AVLTree::compute_height_from_subtrees(&new_subtree);
             if new_height == old_height {
-                self.rebuild_tree_without_changes_to_structure(Some(new_subtree), stack);
+                    self.root = AVLTree::rebuild_original_tree(Some(new_subtree), stack);
                 return None;
             } else {
                 assert!(new_height > old_height);
@@ -728,7 +712,8 @@ impl<T: Ord + Debug + Display> AVLTree<T> {
                     AVLTree::balance(&mut new_subtree_link);
                     // after balancing, the subtree has the same height as before
                     // therefore, no changes in ancestors
-                    self.rebuild_tree_without_changes_to_structure(new_subtree_link, stack);
+
+                    self.root = AVLTree::rebuild_original_tree(new_subtree_link, stack);
                     return None;
                 }
             }
