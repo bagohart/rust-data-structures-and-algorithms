@@ -430,10 +430,10 @@ impl<T: Ord + Debug + Display> AVLTree<T> {
     //      - put successor node back in and update height. rebalance if necessary.
     //      - propagate heights back up and rebalance at each step if necessary
     // pub fn delete(&mut self, elem: &T) -> Option<T> {
-        // // todo:
-        // let (path_stack, subtree_link) = self.find_and_split_path(elem);
-        // error and reassemble tree or continue
-        // None
+    // // todo:
+    // let (path_stack, subtree_link) = self.find_and_split_path(elem);
+    // error and reassemble tree or continue
+    // None
     // }
 
     pub fn remove_old(&mut self, elem: &T) {
@@ -577,7 +577,7 @@ impl<T: Ord + Debug + Display> AVLTree<T> {
         ) -> (Link<T>, /* continue */ bool),
     {
         let mut continue_ = true;
-        while continue_ && !path_stack.is_empty() { // no while let syntax for this at this point
+        while continue_ && !path_stack.is_empty() {
             let (parent_node, direction) = path_stack.pop().unwrap();
             let temp = combine_func(subtree, parent_node, direction);
             subtree = temp.0;
@@ -646,6 +646,15 @@ impl<T: Ord + Debug + Display> AVLTree<T> {
         }
     }
 
+    fn create_new_subtree(elem: T) -> Subtree<T> {
+        Some(Box::new(Node {
+            elem: elem,
+            height: 1,
+            left: None,
+            right: None,
+        }))
+    }
+
     // elements are unique, so if the element already exists, return the old one
     //
     // 100% safe rust with some tricks:
@@ -655,66 +664,57 @@ impl<T: Ord + Debug + Display> AVLTree<T> {
     // 4. rebalance and reconstruct remaining path
     // (if comparison panics, the whole tree is removed)
     pub fn insert(&mut self, elem: T) -> Option<T> {
-        // todo: match
-        if self.root.is_none() {
-            self.root = Some(Box::new(Node {
-                elem: elem,
-                height: 1,
-                left: None,
-                right: None,
-            }));
-            return None;
-        }
-
-        let (mut stack, subtree) = AVLTree::find_value_and_split_path(&elem, self.root.take());
-        // todo: match
-        if subtree.is_some() {
-            self.root = AVLTree::rebuild_original_tree(subtree, stack);
-            return Some(elem);
-        }
-        let mut new_subtree: Box<Node<T>> = Box::new(Node {
-            elem: elem,
-            height: 1,
-            left: None,
-            right: None,
-        });
-        // Step 2: insert node, reconstruct tree and correct height. stop on unbalanced node.
-        let mut path_node;
-        // todo: while let
-        while !stack.is_empty() {
-            let (temp_node, direction) = stack.pop().unwrap();
-            path_node = temp_node;
-            match direction {
-                Direction::Left => path_node.left = Some(new_subtree),
-                Direction::Right => path_node.right = Some(new_subtree),
-            };
-            new_subtree = path_node;
-            let old_height = new_subtree.height;
-            let new_height = AVLTree::compute_height_from_subtrees(&new_subtree);
-            if new_height == old_height {
-                self.root = AVLTree::rebuild_original_tree(Some(new_subtree), stack);
-                return None;
-            } else {
-                assert!(new_height > old_height);
-                new_subtree.height = new_height;
-                if new_subtree.is_balanced() {
-                    continue;
-                } else {
-                    println!("found unbalanced subtree: {}", new_subtree.to_string());
-                    let mut new_subtree_link = Some(new_subtree);
-                    AVLTree::balance(&mut new_subtree_link);
-                    // after balancing, the subtree has the same height as before
-                    // therefore, no changes in ancestors
-
-                    self.root = AVLTree::rebuild_original_tree(new_subtree_link, stack);
-                    return None;
+        let (stack, subtree) = AVLTree::find_value_and_split_path(&elem, self.root.take());
+        match subtree {
+            Some(subtree) => {
+                self.root = AVLTree::rebuild_original_tree(Some(subtree), stack);
+                Some(elem)
+            }
+            None => {
+                let new_node = AVLTree::create_new_subtree(elem);
+                // Step 2: insert node, reconstruct tree and correct height. stop on unbalanced node.
+                // rebuild until unbalanced node found or until height has not changed
+                let (mut modified_subtree, path_stack) = AVLTree::rebuild_tree(
+                    new_node,
+                    stack,
+                    &|subtree, mut parent: Box<Node<T>>, direction| {
+                        let parent_old_height = parent.height;
+                        match direction {
+                            Direction::Left => parent.left = subtree,
+                            Direction::Right => parent.right = subtree,
+                        };
+                        let parent_new_height = AVLTree::compute_height_from_subtrees(&parent);
+                        if parent_new_height == parent_old_height {
+                            // no changes in ancestors necessary,
+                            // so stop and rebuild the rest without checks and height updates
+                            (Some(parent), false)
+                        } else {
+                            parent.height = parent_new_height;
+                            let continue_ = parent.is_balanced();
+                            (Some(parent), continue_)
+                        }
+                    },
+                );
+                match modified_subtree.as_ref().unwrap().is_balanced() {
+                    true => {
+                        // stack is empty if the root's height changed without rebalancing.
+                        // This happens i.e. always on the second insertion.
+                        self.root = AVLTree::rebuild_original_tree(modified_subtree, path_stack);
+                    }
+                    false => {
+                        println!(
+                            "found unbalanced subtree: {}",
+                            modified_subtree.as_ref().unwrap().to_string()
+                        );
+                        AVLTree::balance(&mut modified_subtree);
+                        // after balancing, the subtree has the same height as before
+                        // therefore, no changes in ancestors
+                        self.root = AVLTree::rebuild_original_tree(modified_subtree, path_stack);
+                    }
                 }
+                None
             }
         }
-        // None rebalancing was necessary, but the height changed everywhere. This is not unusual.
-        // Can happen e.g. if a node is inserted into a tree where only the root exists
-        self.root = Some(new_subtree);
-        None
     }
 
     pub fn is_sorted(&self) -> bool {
