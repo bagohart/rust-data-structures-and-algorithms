@@ -41,6 +41,7 @@ use std::mem;
 // based on BinarySearchTree, but extended and restricted and removed
 // some things irrelevant for AVL property
 type Link<T> = Option<Box<Node<T>>>;
+type Subtree<T> = Link<T>;
 
 #[derive(Debug)]
 pub struct Node<T> {
@@ -260,7 +261,7 @@ pub struct AVLTree<T: Ord + Debug> {
     pub root: Link<T>,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Direction {
     Left,
     Right,
@@ -375,21 +376,19 @@ impl<T: Ord + Debug + Display> AVLTree<T> {
     }
 
     fn find_leftmost_child_and_split_path(root: Link<T>) -> (PathStack<T>, Link<T>) {
-        AVLTree::find_subtree_and_split_path(root, &|node: &Box<Node<T>>| {
-            match node.left {
-                Some(_) => SplitInstruction::Left,
-                None => SplitInstruction::Stop,
-            }
+        AVLTree::find_subtree_and_split_path(root, &|node: &Box<Node<T>>| match node.left {
+            Some(_) => SplitInstruction::Left,
+            None => SplitInstruction::Stop,
         })
     }
 
     fn find_value_and_split_path(value: &T, root: Link<T>) -> (PathStack<T>, Link<T>) {
-        AVLTree::find_subtree_and_split_path(root, &|node: &Box<Node<T>>| {
-            match value.cmp(&node.elem) {
-                Ordering::Equal => SplitInstruction::Stop,
-                Ordering::Less => SplitInstruction::Left,
-                Ordering::Greater => SplitInstruction::Right,
-            }
+        AVLTree::find_subtree_and_split_path(root, &|node: &Box<Node<T>>| match value
+            .cmp(&node.elem)
+        {
+            Ordering::Equal => SplitInstruction::Stop,
+            Ordering::Less => SplitInstruction::Left,
+            Ordering::Greater => SplitInstruction::Right,
         })
     }
 
@@ -562,6 +561,33 @@ impl<T: Ord + Debug + Display> AVLTree<T> {
     // 0 for None
     fn get_height_from_link(link: &Link<T>) -> i32 {
         link.as_ref().map(|node| node.height).unwrap_or(0)
+    }
+
+    // todo: do I need to enable stop before whole stack is consumed?
+    fn rebuild_tree<F>(
+        mut subtree: Link<T>,
+        mut path_stack: PathStack<T>,
+        combine_func: &F,
+    ) -> (Subtree<T>, PathStack<T>)
+    where
+        F: Fn(/* subtree: */ Link<T>, /* parent: */ Box<Node<T>>, Direction) -> Link<T>,
+    {
+        while let Some((parent_node, direction)) = path_stack.pop() {
+            subtree = combine_func(subtree, parent_node, direction);
+        }
+        (subtree, path_stack)
+    }
+
+    // // todo: remove
+    // type PathStack<T> = Vec<(Box<Node<T>>, Direction)>;
+    fn rebuild_original_tree(mut subtree: Link<T>, path_stack: PathStack<T>) -> Link<T> {
+        AVLTree::rebuild_tree(subtree, path_stack, &|subtree, mut parent, direction| {
+            match direction {
+                Direction::Left => parent.left = subtree,
+                Direction::Right => parent.right = subtree,
+            }
+            Some(parent)
+        }).0
     }
 
     // helper function for insert()
