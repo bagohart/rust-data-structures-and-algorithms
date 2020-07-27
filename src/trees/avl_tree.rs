@@ -375,6 +375,13 @@ impl<T: Ord + Debug + Display> AVLTree<T> {
         None
     }
 
+    fn find_link_for_new_value(root: Link<T>, value: &T) -> (PathStack<T>, Link<T>) {
+        AVLTree::find_subtree_and_split_path(root, &|node: &Box<Node<T>>| match node.left {
+            Some(_) => SplitInstruction::Left,
+            None => SplitInstruction::Stop,
+        })
+    }
+
     fn find_leftmost_child_and_split_path(root: Link<T>) -> (PathStack<T>, Link<T>) {
         AVLTree::find_subtree_and_split_path(root, &|node: &Box<Node<T>>| match node.left {
             Some(_) => SplitInstruction::Left,
@@ -646,6 +653,7 @@ impl<T: Ord + Debug + Display> AVLTree<T> {
     // 4. rebalance and reconstruct remaining path
     // (if comparison panics, the whole tree is removed)
     pub fn insert(&mut self, elem: T) -> Option<T> {
+        // todo: match
         if self.root.is_none() {
             self.root = Some(Box::new(Node {
                 elem: elem,
@@ -656,29 +664,7 @@ impl<T: Ord + Debug + Display> AVLTree<T> {
             return None;
         }
 
-        // Step 1: find place for new node and split path
-        let mut stack: Vec<(Box<Node<T>>, Direction)> =
-            Vec::with_capacity(self.root.as_ref().unwrap().height as usize);
-        let mut subtree_link: Link<T> = self.root.take();
-        while subtree_link.is_some() {
-            match elem.cmp(&subtree_link.as_ref().unwrap().elem) {
-                Ordering::Equal => {
-                    let old_value = mem::replace(&mut subtree_link.as_mut().unwrap().elem, elem);
-                    self.root = AVLTree::rebuild_original_tree(subtree_link, stack);
-                    return Some(old_value);
-                }
-                Ordering::Less => {
-                    let next_link = subtree_link.as_mut().unwrap().left.take();
-                    stack.push((subtree_link.unwrap(), Direction::Left));
-                    subtree_link = next_link;
-                }
-                Ordering::Greater => {
-                    let next_link = subtree_link.as_mut().unwrap().right.take();
-                    stack.push((subtree_link.unwrap(), Direction::Right));
-                    subtree_link = next_link;
-                }
-            }
-        }
+        let (mut stack, subtree) = AVLTree::find_value_and_split_path(&elem, self.root.take());
         let mut new_subtree: Box<Node<T>> = Box::new(Node {
             elem: elem,
             height: 1,
