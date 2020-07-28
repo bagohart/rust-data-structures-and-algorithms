@@ -6,38 +6,6 @@ use std::fmt::Debug;
 use std::fmt::Display;
 // use std::mem;
 
-// todo neu:
-// split generisch
-// rebuild generisch
-
-// todo alt:
-// insert + rebalance
-// strategie: erstmal nur einfügen, danach von der wurzel neu suchen und rotieren.
-// sollte in safe rust problemlos möglich sein
-//
-// remove + rebalance
-// strategie:
-// so wie bei einfügen, nur wiederholt. dabei geht etwas performance verloren, weil immer neu
-// gesucht wird, anstatt dem parent pointer nach oben zu folgen.
-// alternativ könnte der baum modifiziert werden, indem man temporär die ganzen knoten zerhackt.
-// das hat dann noch zusätzliche kosten, könnte aber in der O(n) analyse insgesamt vorteilhaft
-// sein. Ich denke, das sollte ich machen, sonst ist es zu einfach.
-// unsafe rust mit *mut T wäre natürlich die leichtere lösung, aber wo bleibt da all der spaß.
-//
-// kleine funktionen:
-// Node:
-// is_balanced()
-//
-// AVLTree:
-// top_unbalanced_node()
-// bottom_unbalanced_node()
-// split_top_to_bottom_unbalanced_node() <- zerhacke baum entlang diesem pfad, also speichere
-// - den letzten nicht abgehackten node und L/R
-// - ein array nodes und L/R
-// - den letzten teilbaum. evtl. einfach der letzte eintrag im array
-// Vec für stack abarbeitung scheint sehr angemessen.
-//
-
 // based on BinarySearchTree, but extended and restricted and removed
 // some things irrelevant for AVL property
 type Link<T> = Option<Box<Node<T>>>;
@@ -324,6 +292,7 @@ impl<T: Ord + Debug + Display> AVLTree<T> {
     //   A   elem
     //      /   \
     //     B     C
+    //     todo: what about height? is it adjusted?
     fn rotate_right_node(parent_link: &mut Link<T>) {
         if parent_link.is_none() {
             panic!("called rotate_right_node() on empty subtree!");
@@ -502,24 +471,40 @@ impl<T: Ord + Debug + Display> AVLTree<T> {
                 AVLTree::append_to_parent_a_subtree(&mut parent, subtree, direction);
                 let parent_new_height = AVLTree::compute_height_from_subtrees(&parent);
                 if parent_new_height == parent_old_height {
-                    // no changes in ancestors necessary,
-                    // so stop and rebuild the rest without checks and height updates
-                    (Some(parent), false)
-                } else {
-                    parent.height = parent_new_height;
-                    // todo: balance here immediately if necessary
-                    if parent.is_unbalanced() {
-                        // todo: are the heights correct at this point?
+                    let mut continue_ = false;
+                    if (parent.is_unbalanced()) {
+                        let height_before_rebalance = parent_new_height;
+                        println!("balance intermediate tree without changed height in rebuild_and_balance_at_each_step()");
                         let mut parent_link = Some(parent);
                         AVLTree::balance(&mut parent_link);
                         parent = parent_link.unwrap();
+                        // todo: is height correct?
+                        let height_after_rebalance = parent.height;
+                        (
+                            Some(parent),
+                            height_after_rebalance != height_before_rebalance,
+                        )
+                    } else {
+                        (Some(parent), false)
                     }
-                    (Some(parent), false)
+                } else {
+                    parent.height = parent_new_height;
+                    if parent.is_unbalanced() {
+                        // todo: are the heights correct at this point?
+                        // or after balancing? or *sometimes*?
+                        let mut parent_link = Some(parent);
+                        println!("balance intermediate tree with changed height in rebuild_and_balance_at_each_step()");
+                        AVLTree::balance(&mut parent_link);
+                        parent = parent_link.unwrap();
+                    }
+                    // todo: condition for not continuing?
+                    (Some(parent), true)
                 }
             },
         );
-        // todo: test this. it should actually be complete maybe ?_?
-        unimplemented!()
+        assert!(path_stack.is_empty());
+        assert!(subtree.as_ref().map(|s| s.is_balanced()).unwrap_or(true));
+        subtree
     }
 
     // todo: rebalance
@@ -534,6 +519,7 @@ impl<T: Ord + Debug + Display> AVLTree<T> {
     //      - put successor node back in and update height. rebalance if necessary.
     //      - propagate heights back up and rebalance at each step if necessary
     pub fn delete(&mut self, elem: &T) -> Option<T> {
+        self.assert_ok();
         let (path_stack, subtree) = AVLTree::find_value_and_split_path(elem, self.root.take());
         match subtree {
             None => {
@@ -547,11 +533,13 @@ impl<T: Ord + Debug + Display> AVLTree<T> {
     fn delete_found_node(&mut self, mut path_stack: PathStack<T>, mut node: Box<Node<T>>) -> T {
         match node.node_type() {
             NodeType::Leaf => {
+                println!("delete leaf");
                 let value = node.elem;
                 self.root = AVLTree::rebuild_and_balance_at_each_step(None, path_stack);
                 value
             }
             NodeType::HalfLeaf => {
+                println!("delete half leaf");
                 let only_child = node.take_only_child();
                 let value = node.elem;
                 let parent = path_stack.pop();
@@ -563,13 +551,23 @@ impl<T: Ord + Debug + Display> AVLTree<T> {
                     Some((mut parent, direction)) => {
                         AVLTree::append_to_parent_a_node(&mut parent, only_child, direction);
                         parent.update_height_relying_on_subtrees();
+                        // todo:
+                        if parent.is_unbalanced() {
+                            println!("remove halfleaf, rebalance before reconstruction");
+                            let mut parent_link = Some(parent);
+                            AVLTree::balance(&mut parent_link);
+                            parent = parent_link.unwrap();
+                        }
                         self.root =
                             AVLTree::rebuild_and_balance_at_each_step(Some(parent), path_stack);
                     }
                 };
                 value
             }
-            NodeType::Inner => unimplemented!(),
+            NodeType::Inner => {
+                println!("delete inner node");
+                unimplemented!()
+            }
         }
     }
 
@@ -801,6 +799,7 @@ impl<T: Ord + Debug + Display> AVLTree<T> {
     // 4. rebalance and reconstruct remaining path
     // (if comparison panics, the whole tree is removed)
     pub fn insert(&mut self, elem: T) -> Option<T> {
+        self.assert_ok();
         let (stack, subtree) = AVLTree::find_value_and_split_path(&elem, self.root.take());
         match subtree {
             Some(subtree) => {
@@ -981,8 +980,48 @@ mod tests {
         // assert_eq!(e.unwrap_err(), RotateError::MissingKey);
     }
 
-    fn remove() {
-        // todo:
+    #[test]
+    fn delete() {
+        let mut tree = AVLTree::new_empty();
+        tree.insert(10);
+        tree.delete(&10);
+        tree.insert(10);
+        tree.delete(&10);
+        tree.insert(10);
+        tree.insert(20);
+        tree.delete(&20);
+        tree.insert(20);
+        tree.delete(&10);
+        tree.insert(30);
+        tree.insert(10);
+        tree.insert(40);
+        tree.delete(&30);
+
+        tree.assert_ok();
+
+        // 10 20 5 30 d5 failed!
+        let mut tree = AVLTree::new_empty();
+        tree.insert(10);
+        tree.insert(20);
+        tree.insert(5);
+        tree.insert(30);
+        tree.delete(&5);
+
+        tree.assert_ok();
+
+        let mut tree = AVLTree::new_empty();
+        tree.insert(10);
+        tree.insert(20);
+        tree.insert(5);
+        tree.insert(7);
+        tree.insert(30);
+        tree.insert(15);
+        tree.insert(40);
+        tree.delete(&5);
+        tree.assert_ok();
+
+        println!("TEST SUCCEEDED!");
+        panic!("lol");
     }
 
     #[test]
