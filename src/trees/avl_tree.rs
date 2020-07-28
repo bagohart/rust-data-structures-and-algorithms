@@ -4,7 +4,7 @@ use std::collections::VecDeque;
 use std::fmt;
 use std::fmt::Debug;
 use std::fmt::Display;
-// use std::mem;
+use std::mem;
 
 // based on BinarySearchTree, but extended and restricted and removed
 // some things irrelevant for AVL property
@@ -28,7 +28,7 @@ enum SplitInstruction {
 enum NodeType {
     Leaf,
     HalfLeaf,
-    Inner,
+    Branching,
 }
 
 // returns the height as indicated by Node value 'height' or 0 if the subtree is empty
@@ -104,7 +104,7 @@ impl<T: Ord + Debug + Display> Node<T> {
         match left + right {
             0 => NodeType::Leaf,
             1 => NodeType::HalfLeaf,
-            2 => NodeType::Inner,
+            2 => NodeType::Branching,
             _ => panic!("node with wrong number of children"),
         }
     }
@@ -263,7 +263,7 @@ pub enum Direction {
 type PathStack<T> = Vec<(Box<Node<T>>, Direction)>;
 
 impl<T: Ord + Debug + Display> AVLTree<T> {
-    // todo: recursive things. only for sanity tests.
+    // recursive things. only for sanity tests. not for production because recursion.
     fn assert_balanced(&self) {
         self.root.as_ref().map(|root| root.assert_balanced());
     }
@@ -281,6 +281,7 @@ impl<T: Ord + Debug + Display> AVLTree<T> {
 
     // succeeds if it exists and has a left child
     // "right" denotes the direction in which the node moves, and downward
+    // height is corrected
     //          elem
     //         /    \
     //        l      C
@@ -292,7 +293,6 @@ impl<T: Ord + Debug + Display> AVLTree<T> {
     //   A   elem
     //      /   \
     //     B     C
-    //     todo: what about height? is it adjusted?
     fn rotate_right_node(parent_link: &mut Link<T>) {
         if parent_link.is_none() {
             panic!("called rotate_right_node() on empty subtree!");
@@ -320,6 +320,7 @@ impl<T: Ord + Debug + Display> AVLTree<T> {
 
     // succeeds if it exists and has a right child
     // "left" denotes the direction in which the node moves, and downward
+    // height is corrected
     //    elem
     //    /  \
     //   A    l
@@ -471,27 +472,28 @@ impl<T: Ord + Debug + Display> AVLTree<T> {
                 AVLTree::append_to_parent_a_subtree(&mut parent, subtree, direction);
                 let parent_new_height = AVLTree::compute_height_from_subtrees(&parent);
                 if parent_new_height == parent_old_height {
-                    let mut continue_ = false;
-                    if (parent.is_unbalanced()) {
+                    // todo: some of this is ugly. refactor.
+                    if parent.is_unbalanced() {
                         let height_before_rebalance = parent_new_height;
                         println!("balance intermediate tree without changed height in rebuild_and_balance_at_each_step()");
                         let mut parent_link = Some(parent);
                         AVLTree::balance(&mut parent_link);
                         parent = parent_link.unwrap();
-                        // todo: is height correct?
                         let height_after_rebalance = parent.height;
                         (
                             Some(parent),
-                            height_after_rebalance != height_before_rebalance,
+                            true
+                            // // todo: I can optimize this, but this function needs to build up
+                            // everything!
+                            // height_after_rebalance != height_before_rebalance,
                         )
                     } else {
-                        (Some(parent), false)
+                        (Some(parent), true)
+                        // (Some(parent), false)
                     }
                 } else {
                     parent.height = parent_new_height;
                     if parent.is_unbalanced() {
-                        // todo: are the heights correct at this point?
-                        // or after balancing? or *sometimes*?
                         let mut parent_link = Some(parent);
                         println!("balance intermediate tree with changed height in rebuild_and_balance_at_each_step()");
                         AVLTree::balance(&mut parent_link);
@@ -507,8 +509,7 @@ impl<T: Ord + Debug + Display> AVLTree<T> {
         subtree
     }
 
-    // todo: rebalance
-    // we have to keep heights correct and keep track of successors. this is much harder than what we did before.
+    // this is the hardest thing:
     // 1: find node, split path. if not found, reassemble path and quit
     // 2: distinguish 3 cases:
     // 2a leaf: remove, propagate heights back up and rebalance at each step if necessary
@@ -545,13 +546,13 @@ impl<T: Ord + Debug + Display> AVLTree<T> {
                 let parent = path_stack.pop();
                 match parent {
                     None => {
-                        // todo: rebalance necessary ?_?
+                        // if it's unbalanced now, it was unbalanced before x_X
+                        assert!(only_child.is_balanced());
                         self.root = Some(only_child);
                     }
                     Some((mut parent, direction)) => {
                         AVLTree::append_to_parent_a_node(&mut parent, only_child, direction);
                         parent.update_height_relying_on_subtrees();
-                        // todo:
                         if parent.is_unbalanced() {
                             println!("remove halfleaf, rebalance before reconstruction");
                             let mut parent_link = Some(parent);
@@ -564,9 +565,27 @@ impl<T: Ord + Debug + Display> AVLTree<T> {
                 };
                 value
             }
-            NodeType::Inner => {
-                println!("delete inner node");
-                unimplemented!()
+            // 2c branching node:
+            //      - find successor (exists!) in right subtree, split path, take out successor
+            //      - propagate heights back up and rebalance right subtree at each step if necessary
+            //      - put successor node back in and update height. rebalance if necessary.
+            //      - propagate heights back up and rebalance at each step if necessary
+            NodeType::Branching => {
+                println!("delete branching node");
+                let (right_subtree_path_stack, leftmost_child) = AVLTree::find_leftmost_child_and_split_path(node.right.take());
+                let right_subtree_without_successor = AVLTree::rebuild_and_balance_at_each_step(None, right_subtree_path_stack);
+                let old_value = mem::replace(&mut node.elem, leftmost_child.unwrap().elem);
+                node.right = right_subtree_without_successor;
+                node.update_height_relying_on_subtrees();
+                // todo: extract rebalance_if_necessary
+                if node.is_unbalanced() {
+                    let mut node_link = Some(node);
+                    // todo: extract another function that constructs the link itself
+                     AVLTree::balance(&mut node_link);
+                    node = node_link.unwrap();
+                }
+                self.root = AVLTree::rebuild_and_balance_at_each_step(Some(node), path_stack);
+                old_value
             }
         }
     }
@@ -698,7 +717,6 @@ impl<T: Ord + Debug + Display> AVLTree<T> {
         link.as_ref().map(|node| node.height).unwrap_or(0)
     }
 
-    // todo: do I need to enable stop before whole stack is consumed?
     fn rebuild_tree<F>(
         mut subtree: Link<T>,
         mut path_stack: PathStack<T>,
@@ -721,8 +739,6 @@ impl<T: Ord + Debug + Display> AVLTree<T> {
         (subtree, path_stack)
     }
 
-    // // todo: remove
-    // type PathStack<T> = Vec<(Box<Node<T>>, Direction)>;
     fn rebuild_original_tree(subtree: Link<T>, path_stack: PathStack<T>) -> Link<T> {
         AVLTree::rebuild_tree(subtree, path_stack, &|subtree, mut parent, direction| {
             match direction {
@@ -815,12 +831,7 @@ impl<T: Ord + Debug + Display> AVLTree<T> {
                     stack,
                     &|subtree, mut parent: Box<Node<T>>, direction| {
                         let parent_old_height = parent.height;
-                        // todo: extract
                         AVLTree::append_to_parent_a_subtree(&mut parent, subtree, direction);
-                        // match direction {
-                        //     Direction::Left => parent.left = subtree,
-                        //     Direction::Right => parent.right = subtree,
-                        // };
                         let parent_new_height = AVLTree::compute_height_from_subtrees(&parent);
                         if parent_new_height == parent_old_height {
                             // no changes in ancestors necessary,
@@ -926,59 +937,8 @@ impl<T: Ord + Display + Debug> Display for AVLTree<T> {
 #[cfg(test)]
 mod tests {
     use super::AVLTree;
-    // remove
+    // todo remove
     // use super::Node;
-
-    fn create_avl_tree_1() -> AVLTree<i32> {
-        // todo: was mach ich damit?
-        let mut tree = AVLTree::new_empty();
-        tree.insert(1);
-        tree.insert(2);
-        tree.insert(3);
-        tree
-    }
-
-    #[test]
-    fn rotate_left_node() {
-        // // todo:
-        // let mut tree = create_sorted_tree_1();
-        // let _ = tree.rotate_left(&17);
-        // assert_eq!(
-        //     tree.to_string(),
-        //     "[15 (5 (3) (12 (10 (6) (Nil)) (14))) (16 (Nil) (20 (18 (17) (Nil)) (31)))]"
-        // );
-        // let _ = tree.rotate_left(&5);
-        // assert_eq!(
-        //     tree.to_string(),
-        //     "[15 (12 (5 (3) (10 (6) (Nil))) (14)) (16 (Nil) (20 (18 (17) (Nil)) (31)))]"
-        // );
-
-        // let e = tree.rotate_left(&1337);
-        // assert_eq!(e.unwrap_err(), RotateError::MissingKey);
-        // let e = tree.rotate_right(&31);
-        // assert_eq!(e.unwrap_err(), RotateError::MissingChild);
-    }
-
-    #[test]
-    fn rotate_right_node() {
-        // // todo:
-        // let mut tree = create_sorted_tree_1();
-        // let _ = tree.rotate_right(&5);
-        // assert_eq!(
-        //     tree.to_string(),
-        //     "[15 (3 (Nil) (5 (Nil) (12 (10 (6) (Nil)) (14)))) (16 (Nil) (20 (17 (Nil) (18)) (31)))]"
-        // );
-        // let _ = tree.rotate_right(&20);
-        // assert_eq!(
-        //     tree.to_string(),
-        //     "[15 (3 (Nil) (5 (Nil) (12 (10 (6) (Nil)) (14)))) (16 (Nil) (17 (Nil) (20 (18) (31))))]"
-        // );
-
-        // let e = tree.rotate_right(&3);
-        // assert_eq!(e.unwrap_err(), RotateError::MissingChild);
-        // let e = tree.rotate_right(&1337);
-        // assert_eq!(e.unwrap_err(), RotateError::MissingKey);
-    }
 
     #[test]
     fn delete() {
@@ -1020,8 +980,44 @@ mod tests {
         tree.delete(&5);
         tree.assert_ok();
 
-        println!("TEST SUCCEEDED!");
-        panic!("lol");
+        let mut tree = AVLTree::new_empty();
+        tree.insert(5);
+        tree.insert(10);
+        tree.insert(3);
+        tree.insert(7);
+        tree.insert(15);
+        tree.delete(&5);
+        tree.assert_ok();
+
+        let mut tree = AVLTree::new_empty();
+        tree.insert(5);
+        tree.insert(10);
+        tree.insert(3);
+        tree.insert(7);
+        tree.insert(15);
+        tree.delete(&5);
+
+        tree.assert_ok();
+
+        let mut tree = AVLTree::new_empty();
+        tree.insert(50);
+        tree.insert(20);
+        tree.insert(100);
+        tree.insert(10);
+        tree.insert(40);
+        tree.insert(75);
+        tree.insert(150);
+        tree.insert(30);
+        tree.insert(45);
+        tree.insert(60);
+        tree.insert(90);
+        tree.insert(25);
+
+        tree.delete(&100);
+        tree.assert_ok();
+
+        // println!("TEST SUCCEEDED!");
+        // panic!("lol");
     }
 
     #[test]
@@ -1049,7 +1045,6 @@ mod tests {
         tree.assert_ok();
         tree.insert(3);
         tree.assert_ok();
-        // todo: mehr tests.
         assert_eq!(tree.to_string(), "[2 (1) (3)]");
         tree.insert(4);
         tree.assert_ok();
