@@ -449,17 +449,10 @@ impl<T: Ord + Debug + Display> AVLTree<T> {
         };
     }
 
-    // fn rebuild_tree<F>(
-    //     mut subtree: Link<T>,
-    //     mut path_stack: PathStack<T>,
-    //     combine_func: &F,
-    // ) -> (Subtree<T>, PathStack<T>)
-    // where
-    //     F: Fn(
-    //         /* subtree: */ Link<T>,
-    //         /* parent: */ Box<Node<T>>,
-    //         Direction,
-    //     ) -> (Link<T>, /* continue */ bool),
+    // minor optimization potential: this function checks for necessary rebalancing at each step,
+    // even if the height did not change.
+    // it might be possible to use a function that drops the checking
+    // as soon as a node with unaltered height is reached
     fn rebuild_and_balance_at_each_step(
         subtree: Subtree<T>,
         path_stack: PathStack<T>,
@@ -468,40 +461,11 @@ impl<T: Ord + Debug + Display> AVLTree<T> {
             subtree,
             path_stack,
             &|subtree, mut parent: Box<Node<T>>, direction| {
-                let parent_old_height = parent.height;
                 AVLTree::append_to_parent_a_subtree(&mut parent, subtree, direction);
-                let parent_new_height = AVLTree::compute_height_from_subtrees(&parent);
-                if parent_new_height == parent_old_height {
-                    // todo: some of this is ugly. refactor.
-                    if parent.is_unbalanced() {
-                        let height_before_rebalance = parent_new_height;
-                        println!("balance intermediate tree without changed height in rebuild_and_balance_at_each_step()");
-                        let mut parent_link = Some(parent);
-                        AVLTree::balance(&mut parent_link);
-                        parent = parent_link.unwrap();
-                        let height_after_rebalance = parent.height;
-                        (
-                            Some(parent),
-                            true
-                            // // todo: I can optimize this, but this function needs to build up
-                            // everything!
-                            // height_after_rebalance != height_before_rebalance,
-                        )
-                    } else {
-                        (Some(parent), true)
-                        // (Some(parent), false)
-                    }
-                } else {
-                    parent.height = parent_new_height;
-                    if parent.is_unbalanced() {
-                        let mut parent_link = Some(parent);
-                        println!("balance intermediate tree with changed height in rebuild_and_balance_at_each_step()");
-                        AVLTree::balance(&mut parent_link);
-                        parent = parent_link.unwrap();
-                    }
-                    // todo: condition for not continuing?
-                    (Some(parent), true)
-                }
+                parent.update_height_relying_on_subtrees();
+                let mut parent_subtree = Some(parent);
+                AVLTree::balance_if_necessary(&mut parent_subtree);
+                (parent_subtree, true)
             },
         );
         assert!(path_stack.is_empty());
@@ -565,11 +529,6 @@ impl<T: Ord + Debug + Display> AVLTree<T> {
                 };
                 value
             }
-            // 2c branching node:
-            //      - find successor (exists!) in right subtree, split path, take out successor
-            //      - propagate heights back up and rebalance right subtree at each step if necessary
-            //      - put successor node back in and update height. rebalance if necessary.
-            //      - propagate heights back up and rebalance at each step if necessary
             NodeType::Branching => {
                 println!("delete branching node");
                 let (right_subtree_path_stack, leftmost_child) = AVLTree::find_leftmost_child_and_split_path(node.right.take());
@@ -577,13 +536,7 @@ impl<T: Ord + Debug + Display> AVLTree<T> {
                 let old_value = mem::replace(&mut node.elem, leftmost_child.unwrap().elem);
                 node.right = right_subtree_without_successor;
                 node.update_height_relying_on_subtrees();
-                // todo: extract rebalance_if_necessary
-                if node.is_unbalanced() {
-                    let mut node_link = Some(node);
-                    // todo: extract another function that constructs the link itself
-                     AVLTree::balance(&mut node_link);
-                    node = node_link.unwrap();
-                }
+                node = AVLTree::balance_node_if_necessary(node);
                 self.root = AVLTree::rebuild_and_balance_at_each_step(Some(node), path_stack);
                 old_value
             }
@@ -750,7 +703,20 @@ impl<T: Ord + Debug + Display> AVLTree<T> {
         .0
     }
 
-    // panics if the subtree is already balanced
+    fn balance_node_if_necessary(node: Box<Node<T>>)-> Box<Node<T>> {
+        let mut node_link = Some(node);
+        AVLTree::balance_if_necessary(&mut node_link);
+        node_link.unwrap()
+    }
+
+    // like balance, but works also for empty and balanced subtrees (noop)
+    fn balance_if_necessary(subtree_link: &mut Link<T>) {
+        if subtree_link.is_some() && subtree_link.as_ref().unwrap().is_unbalanced() {
+            AVLTree::balance(subtree_link);
+        }
+    }
+
+    // panics if the subtree is already balanced or empty
     fn balance(subtree_link: &mut Link<T>) {
         assert!(subtree_link.is_some());
         let subtree_root = subtree_link.as_ref().unwrap();
@@ -839,7 +805,6 @@ impl<T: Ord + Debug + Display> AVLTree<T> {
                             (Some(parent), false)
                         } else {
                             parent.height = parent_new_height;
-                            // todo: balance here immediately maybe?
                             let continue_ = parent.is_balanced();
                             (Some(parent), continue_)
                         }
@@ -937,8 +902,6 @@ impl<T: Ord + Display + Debug> Display for AVLTree<T> {
 #[cfg(test)]
 mod tests {
     use super::AVLTree;
-    // todo remove
-    // use super::Node;
 
     #[test]
     fn delete() {
