@@ -17,6 +17,9 @@ mod graphs;
 // [x] binary search tree
 // [x] AVL tree
 // [ ] graph(s)
+//      [ ] directed graph
+//      [ ] undirected graph
+//      ... ?
 // [x] Heap
 // [x] searching algorithms:
 //      [x] linear

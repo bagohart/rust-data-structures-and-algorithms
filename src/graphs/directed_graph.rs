@@ -6,9 +6,8 @@ use std::fmt::Display;
 use std::rc::Rc;
 
 // todo
-// transpose
-// is_symmetric()
 // is_complete()
+// dfs, bfs
 // drop <- check if I get leaks!
 // weakly connected
 // strongly connected
@@ -23,13 +22,38 @@ pub struct Node<T: Display> {
     edges: Vec<Rc<RefCell<Node<T>>>>,
 }
 
+struct Edge<T: Display> {
+    from: Rc<RefCell<Node<T>>>,
+    to: Rc<RefCell<Node<T>>>,
+}
+
 // useful in some algorithms. maybe.
-struct Edge<'graph, T: Display> {
+// actually, this is a pain :)
+struct RefEdge<'graph, T: Display> {
     from: Ref<'graph, Node<T>>,
     to: Ref<'graph, Node<T>>,
 }
 
-impl<T: Display> std::hash::Hash for Edge<'_, T> {
+impl<T: Display> std::hash::Hash for Edge<T> {
+    fn hash<H>(&self, state: &mut H)
+    where
+        H: std::hash::Hasher,
+    {
+        (&*(self.from.borrow()) as *const Node<T>).hash(state);
+        (&*(self.to.borrow()) as *const Node<T>).hash(state);
+    }
+}
+
+impl<T: Display> PartialEq for Edge<T> {
+    fn eq(&self, other: &Self) -> bool {
+        // check if two edges reference the same nodes
+        Rc::ptr_eq(&self.from, &other.from) && Rc::ptr_eq(&self.to, &other.to)
+    }
+}
+
+impl<T: Display> Eq for Edge<T> {}
+
+impl<T: Display> std::hash::Hash for RefEdge<'_, T> {
     fn hash<H>(&self, state: &mut H)
     where
         H: std::hash::Hasher,
@@ -42,7 +66,7 @@ impl<T: Display> std::hash::Hash for Edge<'_, T> {
     }
 }
 
-impl<T: Display> PartialEq for Edge<'_, T> {
+impl<T: Display> PartialEq for RefEdge<'_, T> {
     fn eq(&self, other: &Self) -> bool {
         // compare references to nodes.
         // do NOT compare their datums
@@ -50,7 +74,7 @@ impl<T: Display> PartialEq for Edge<'_, T> {
     }
 }
 
-impl<T: Display> Eq for Edge<'_, T> {}
+impl<T: Display> Eq for RefEdge<'_, T> {}
 
 impl<T: Display> Drop for Node<T> {
     fn drop(&mut self) {
@@ -122,30 +146,74 @@ impl<T: Display> Graph<T> {
     pub fn new() -> Self {
         Graph { nodes: Vec::new() }
     }
+    pub fn get_all_edges(&self) -> Vec<Edge<T>> {
+        // todo: this does not work.
+        // I'm not sure why clone() from an Rc even borrows in this situation.
+        // probably it doesn't, and this is a limitation with the borrow checker regarding closures
+        // try for loop next time.
+        // if this doesn't work, step back and ?_?
+        self.nodes
+            .iter()
+            .flat_map(|node| {
+                let temp = node.borrow();
+                temp.edges.iter().map(|neighbour| Edge {
+                    from: Rc::clone(node),
+                    to: Rc::clone(neighbour),
+                    // from: node.clone(),
+                    // to: neighbour.clone(),
+                })
+            })
+            .collect()
+    }
+    pub fn get_all_edges_set(&self) -> HashSet<Edge<T>> {
+        self.get_all_edges().into_iter().collect()
+    }
+    pub fn is_complete(&self) -> bool {
+        unimplemented!()
+        // collect all edges, for each node and each later node,
+        // check if both edges are there
+    }
     pub fn is_symmetric(&self) -> bool {
         // store all edges, then check if each edge is found in swapped form
         // relies on equality of edges depending on address, not datum
 
         // note that this MUST come before the next declaration, or the lifetime is messed up o_O
         // we have to keep this thing around for RefCell madness to compile. uh oh.
+        // With Edge instead of RefEdge, it is easier
         let node_refs: Vec<Ref<Node<T>>> = self.nodes.iter().map(|node| node.borrow()).collect();
-        let mut all_edges: HashSet<Edge<T>> = HashSet::new();
+        let mut all_edges: HashSet<RefEdge<T>> = HashSet::new();
         for node in node_refs.iter() {
             for neighbour in node.edges.iter() {
-                all_edges.insert(Edge {
+                all_edges.insert(RefEdge {
                     from: Ref::clone(node),
                     to: neighbour.borrow(),
                 });
             }
         }
 
-        all_edges.iter().all(|Edge { from: f, to: t }| {
-            let sym_edge = Edge {
+        all_edges.iter().all(|RefEdge { from: f, to: t }| {
+            let sym_edge = RefEdge {
                 from: Ref::clone(t),
                 to: Ref::clone(f),
             };
             all_edges.contains(&sym_edge)
         })
+    }
+    // reverse the direction of all edges
+    pub fn transpose(&mut self) {
+        let adjacency_lists: Vec<Vec<_>> = self
+            .nodes
+            .iter_mut()
+            .map(|node| node.borrow_mut().edges.drain(..).collect())
+            .collect();
+        for (node_index, neighbours) in adjacency_lists.into_iter().enumerate() {
+            for neighbour in neighbours {
+                neighbour
+                    .borrow_mut()
+                    .edges
+                    .push(self.nodes[node_index].clone());
+            }
+        }
     }
 }
 
@@ -207,9 +275,17 @@ mod tests {
     }
 
     #[test]
+    fn transpose() {
+        let mut graph = graph_1();
+        println!("{}", graph);
+        graph.transpose();
+        println!("{}", graph);
+        unimplemented!()
+    }
+
+    #[test]
     fn basics() {
         let graph = graph_1();
         println!("{}", graph);
     }
 }
-
